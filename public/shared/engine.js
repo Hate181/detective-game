@@ -276,16 +276,31 @@
     return count;
   }
 
+  // Кто не проголосовал, голосует против себя. Если его нет среди кандидатов (переголосование, финал), голос пропадает.
+  function fillMissingVotes(game, v) {
+    v.auto = [];
+    active(game).forEach((p) => {
+      if (v.votes[p.id]) return;
+      v.auto.push(p.id);
+      if (v.candidates.includes(p.id)) v.votes[p.id] = p.id;
+    });
+  }
+
   function logVotes(game, now, v) {
+    const auto = v.auto || [];
     const votes = Object.entries(v.votes).filter(([by]) => P(game, by).status === 'active');
-    votes.forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
-    game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), count: Object.assign({}, v.count) });
-    const lines = votes.map(([by, t]) => `${nm(game, by)} → ${nm(game, t)}`);
+    votes.filter(([by]) => !auto.includes(by)).forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
+    game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), auto: auto.slice(), count: Object.assign({}, v.count) });
+    const lines = votes.filter(([by]) => !auto.includes(by)).map(([by, t]) => `${nm(game, by)} → ${nm(game, t)}`);
+    const self = auto.filter((id) => v.candidates.includes(id)), lost = auto.filter((id) => !v.candidates.includes(id));
+    if (self.length) lines.push(`без выбора, голос против себя: ${self.map((id) => nm(game, id)).join(', ')}`);
+    if (lost.length) lines.push(`без выбора, голос пропал: ${lost.map((id) => nm(game, id)).join(', ')}`);
     pushFeed(game, now, { kind: 'vote', text: `Голоса: ${lines.join('; ') || 'никто не проголосовал'}.` });
   }
 
   function tallyVote(game, now) {
     const v = game.vote;
+    fillMissingVotes(game, v);
     v.count = voteCounts(game, v.votes, v.candidates);
     logVotes(game, now, v);
     const max = Math.max(...v.candidates.map((id) => v.count[id]));
@@ -299,6 +314,7 @@
 
   function tallyPoll(game, now) {
     const v = game.vote;
+    fillMissingVotes(game, v);
     v.count = voteCounts(game, v.votes, v.candidates);
     logVotes(game, now, v);
     const ranked = v.candidates.slice().sort((a, b) => v.count[b] - v.count[a] || (game.rng.next() - 0.5));
@@ -319,6 +335,7 @@
 
   function resolveFinal(game, now) {
     const v = game.vote;
+    fillMissingVotes(game, v);
     v.count = voteCounts(game, v.votes, v.candidates);
     logVotes(game, now, v);
     const max = Math.max(...v.candidates.map((id) => v.count[id]));
@@ -336,7 +353,7 @@
     const v = game.vote;
     const voters = Object.keys(v.votes).filter((by) => v.votes[by] === leaderId && by !== leaderId && P(game, by).status === 'active');
     const options = [];
-    if (unusedCard(lp, 'advocate') >= 0 && v.count[leaderId] > 0) options.push('advocate');
+    if (unusedCard(lp, 'advocate') >= 0 && voters.length > 0) options.push('advocate');
     if (options.length) {
       game.overlay = { type: 'save', nomineeId: leaderId, via, options, voters, endsAt: now + dur(game, 'advocate') };
       game.autoAt = null;
@@ -618,7 +635,7 @@
     let leader = ov.nomineeId;
     if (card === 'advocate') {
       nominee.cards[unusedCard(nominee, 'advocate')].used = true;
-      const voters = Object.keys(v.votes).filter((by) => v.votes[by] === nominee.id && P(game, by).status === 'active');
+      const voters = Object.keys(v.votes).filter((by) => v.votes[by] === nominee.id && by !== nominee.id && P(game, by).status === 'active');
       const drop = game.rng.pick(voters);
       delete v.votes[drop];
       v.count = voteCounts(game, v.votes, v.candidates);

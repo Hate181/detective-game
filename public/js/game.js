@@ -275,7 +275,7 @@
         }).join('')}</div>` : wait(meOut ? 'Голосуют те, кто ещё в игре' : 'Голоса принимаются');
         const vp = g.players.filter((p) => p.status === 'active').map((p) => `<span title="${esc(p.name)}">${avatar(p.name, this.idx[p.id], p.voted ? 'on' : '')}</span>`).join('');
         return `<div class="s-head"><p class="eyebrow">${g.phase === 'poll' ? 'Финал · опрос' : final ? 'Финал' : `Раунд ${g.round}`}</p><h3>${title}</h3><p>${sub}</p></div>${grid}
-          <div class="vp"><span>Проголосовали ${v.voted.length} из ${nAct}:</span>${vp}</div>${v.my ? `<p class="muted">Ваш голос: ${esc(this.byId[v.my].name)}.</p>` : ''}`;
+          <div class="vp"><span>Проголосовали ${v.voted.length} из ${nAct}:</span>${vp}</div>${v.my ? `<p class="muted">Ваш голос: ${esc(this.byId[v.my].name)}.</p>` : can ? `<p class="muted">${v.candidates.includes(me.id) ? 'Не выберете, и голос уйдёт против вас.' : 'Не выберете, и голос пропадёт.'}</p>` : ''}`;
       }
 
       if (g.phase === 'result') {
@@ -287,7 +287,7 @@
         const after = p.role === 'killer' ? 'Это был убийца, но сообщник ещё среди вас.' : p.role === 'accomplice' ? (g.gang ? 'Это был сообщник, но убийца остаётся среди вас.' : 'Это был сообщник убийцы, но сам убийца остаётся среди вас.') : (g.gang ? (left === 1 ? 'Это был невиновный. Один из преступников всё ещё среди вас.' : 'Это был невиновный. Оба преступника всё ещё среди вас.') : 'Это был невиновный. Убийца всё ещё среди вас.');
         const max = Math.max(1, ...Object.values(k.count));
         const rows = Object.keys(k.count).sort((a, b) => k.count[b] - k.count[a]).map((id) => {
-          const who = Object.keys(k.votes).filter((by) => k.votes[by] === id).map((by) => (this.byId[by] || {}).name).filter(Boolean);
+          const who = Object.keys(k.votes).filter((by) => k.votes[by] === id && this.byId[by]).map((by) => this.byId[by].name + (by === id ? ' (без выбора)' : ''));
           return `<div class="tr ${id === k.id ? 'top' : ''}"><span>${esc(this.byId[id].name)}</span><span class="bar"><i style="width:${Math.round(100 * k.count[id] / max)}%"></i></span><b>${k.count[id]}</b><span class="who">${who.length ? esc(who.join(', ')) : 'никто не голосовал'}</span></div>`;
         }).join('');
         return `<div class="s-head"><p class="eyebrow">Раунд ${k.round} из ${g.rounds}</p><h3>${esc(p.name)} вне игры</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}</p></div>

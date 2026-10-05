@@ -67,5 +67,22 @@ function start(rules) {
   check(r.ok && game.players[b].revealed.habit, 'карта «Показания» раскрывает запертую особенность: ' + (r.error || 'ок'));
 }
 
-console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» в порядке');
+// Кто не проголосовал, голосует против себя.
+{
+  let { game, now } = start();
+  for (let i = 0; i < 20 && game.phase !== PH.VOTE; i++) E.skip(game, now += 1000);
+  check(game.phase === PH.VOTE, 'партия дошла до голосования');
+  const ids = Object.keys(game.players);
+  const [a, b, target] = ids;
+  E.act(game, a, 'vote', { target }, now);
+  E.act(game, b, 'vote', { target }, now);
+  check(!E.act(game, ids[3], 'vote', { target: ids[3] }, now).ok, 'против себя вручную голосовать нельзя');
+  E.skip(game, now += 1000);
+  const log = game.votesLog[game.votesLog.length - 1];
+  check(log.count[target] === 3 && ids.slice(3).every((id) => log.count[id] === 1), 'молчащие получили по голосу против себя: ' + JSON.stringify(log.count));
+  check(game.kicks.length === 1 && game.kicks[0].id === target, 'исключён лидер голосования');
+  check(!game.suspicions.some((x) => x.by === x.target), 'голос «без выбора» не считается подозрением');
+}
+
+console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» и голоса без выбора в порядке');
 process.exit(fails ? 1 : 0);
