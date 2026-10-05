@@ -23,7 +23,7 @@
     const cards = C.CARDS || {};
     const cardList = ['warrant', 'testimony', 'gossip', 'advocate', 'swap', 'lab', 'trail']
       .filter((k) => cards[k]).map((k) => `<li><b>${esc(cards[k].name)}.</b> ${esc(cards[k].desc)}</li>`).join('');
-    return `${docHead('Правила игры', 'Detective · 6–10 человек · около 30 минут')}
+    return `${docHead('Правила игры', 'Detective Game · 6–10 человек · около 30 минут')}
 <section><h2>Коротко</h2>
 <p>Вы всей компанией расследуете убийство. Двое из вас знают, кто это сделал, потому что это они: убийца и сообщник. Остальные невиновны и должны их вычислить. Каждый раунд вы исключаете одного подозреваемого. Исключили обоих преступников, и дело раскрыто.</p>
 <p>Говорите голосом, обычно в Discord. Сайт показывает карточки, улики, очередь и голосования.</p></section>
@@ -120,7 +120,7 @@ ${contactsSec(10)}`;
   /* ---------- Соглашение о cookie ---------- */
   function cookies() {
     return `${docHead('Соглашение о cookie', `Обновлено: ${REVISION}`)}
-<p class="doc-lead">Пользуясь сайтом Detective, вы соглашаетесь, что он сохраняет в вашем браузере несколько небольших файлов. Без них сайт не сможет запомнить вас и вернуть в партию.</p>
+<p class="doc-lead">Пользуясь сайтом Detective Game, вы соглашаетесь, что он сохраняет в вашем браузере несколько небольших файлов. Без них сайт не сможет запомнить вас и вернуть в партию.</p>
 <section><h2>Что сохраняется</h2>
 <ul class="doc-list">
   <li><b>Cookie входа.</b> Появляется, если вы вошли через Discord или Google, и живёт 30 дней или до нажатия «Выйти».</li>
@@ -150,11 +150,11 @@ ${contactsSec(10)}`;
     },
     render() {
       this.sig = JSON.stringify([me().contact, me().community]);
-      document.title = `${TITLES[this.page]} · Detective`;
+      document.title = `${TITLES[this.page]} · Detective Game`;
       this.root.innerHTML = `<article class="doc wrap" data-page="${this.page}">${RENDER[this.page]()}
 <p class="doc-back"><a class="btn" href="#/">На главную</a></p></article>`;
     },
-    unmount() { document.title = 'Detective · Убийца среди вас'; },
+    unmount() { document.title = 'Detective Game · Убийца среди вас'; },
   };
 
   window.Screens = window.Screens || {};

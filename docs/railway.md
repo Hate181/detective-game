@@ -13,15 +13,11 @@
    | `NODE_ENV` | `production` |
    | `DATA_DIR` | `/data` |
    | `ADMIN_KEY` | длинный случайный пароль, от 16 знаков |
-   | `PUBLIC_URL` | адрес сайта с https, например `https://detective-noir.up.railway.app` |
+   | `PUBLIC_URL` | адрес сайта с https, например `https://detective-game.up.railway.app` |
    | `TRUST_PROXY_HOPS` | `1` |
 
    Почта (`detective-platform-ops@proton.me`) и Discord (`https://discord.gg/hfWsKkGVH`) стоят по умолчанию, задавать их не нужно. Вход через Discord и Google включается позже переменными `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-4. **Адрес.** Settings → Networking → Generate Domain, затем карандаш рядом с адресом и своё имя. Варианты под игру:
-   - `detective-noir.up.railway.app`
-   - `delo-zakryto.up.railway.app`
-   - `ubiytsa-sredi-vas.up.railway.app`
-   - `detective-game.up.railway.app`
+4. **Адрес.** Settings → Networking → Generate Domain, затем карандаш рядом с адресом: `detective-game.up.railway.app`.
 
    После смены адреса поправьте `PUBLIC_URL`. Когда появится свой домен, добавьте его там же (Custom Domain) и снова поправьте `PUBLIC_URL`.
 5. **Проверка.** Откройте `/healthz` (должно быть `{"ok":true,...}`), затем главную, затем `/#/admin` со своим `ADMIN_KEY` и тестовую комнату с ботами.

@@ -799,3 +799,6 @@ body:not([data-screen="home"]):not([data-screen="page"]) .cookiebar { display: n
 .modal .field { margin-top: 4px; }
 .modal .hint { margin: 10px 0 0; font-size: 13.5px; color: var(--muted); }
 .linkish { background: none; border: 0; padding: 0; color: var(--amber); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+/* Detective Game: второе слово названия, тёплое и разреженное, под буквами DETECTIVE */
+.hero h1 .h1-game { display: block; width: fit-content; margin-top: .14em; font: 600 italic .34em/1 var(--f-display); letter-spacing: .62em; margin-right: -.62em; text-transform: uppercase; color: var(--amber); }
+.brand b { color: var(--amber); font-weight: 700; }

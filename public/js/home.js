@@ -100,7 +100,7 @@
 <section class="hero"><div class="wrap hero-grid">
   <div>
     <p class="eyebrow">Онлайн-детектив · 6–10 человек · около 30 минут</p>
-    <h1 aria-label="Detective">${'DETECTIVE'.split('').map((ch, i) => `<span class="${i > 5 ? 'accent' : ''}" style="animation-delay:${0.05 * i}s" aria-hidden="true">${ch}</span>`).join('')}</h1>
+    <h1 aria-label="Detective Game">${'DETECTIVE'.split('').map((ch, i) => `<span style="animation-delay:${0.05 * i}s" aria-hidden="true">${ch}</span>`).join('')}<span class="h1-game" style="animation-delay:.55s" aria-hidden="true">Game</span></h1>
     <p class="lead">Убийца среди вас. Осталось понять кто.</p>
     <div id="resume"></div>
     <form class="start-card" id="startForm" autocomplete="off">

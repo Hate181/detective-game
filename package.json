@@ -1,7 +1,7 @@
 {
-  "name": "detective",
+  "name": "detective-game",
   "version": "1.0.0",
-  "description": "Detective — кооперативная онлайн-игра на дедукцию",
+  "description": "Detective Game: кооперативная онлайн-игра на дедукцию",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
