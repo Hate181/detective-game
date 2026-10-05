@@ -1,0 +1,22 @@
+{
+  "name": "detective",
+  "version": "1.0.0",
+  "description": "Detective — кооперативная онлайн-игра на дедукцию",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "preview": "node scripts/build-preview.js",
+    "test": "node scripts/test-generator.js && node scripts/test-engine.js && node scripts/test-hub.js && node scripts/test-presence.js && node scripts/test-rules.js && node scripts/test-gang.js && node scripts/test-pack.js && node scripts/test-cards.js && node scripts/test-security.js"
+  },
+  "engines": { "node": ">=22" },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

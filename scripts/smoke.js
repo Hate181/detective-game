@@ -1,0 +1,20 @@
+const { chromium } = require('playwright');
+const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const URL = process.env.URL || 'http://localhost:3000';
+(async () => {
+  const browser = await chromium.launch({ executablePath: CHROME });
+  const errors = [];
+  const mobile = !!process.env.MOBILE;
+  const ctx = await browser.newContext({ viewport: mobile ? { width: 390, height: 800 } : { width: 1360, height: 860 }, ignoreHTTPSErrors: true, isMobile: mobile, hasTouch: mobile });
+  const page = await ctx.newPage();
+  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('requestfailed', (r) => errors.push('failed: ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  await page.goto(URL);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `shots/home${mobile ? '-m' : ''}.png` });
+  await page.screenshot({ path: `shots/home${mobile ? '-m' : ''}-full.png`, fullPage: true });
+  console.log('overflow', await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth));
+  console.log('errors', errors);
+  await browser.close();
+})();

@@ -1,0 +1,32 @@
+// Проверка демо-режима: собранный HTML открывается как файл, сервера нет, соседи по комнате боты.
+const { chromium } = require('playwright');
+const path = require('path');
+const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'detective-preview.html');
+(async () => {
+  const browser = await chromium.launch({ executablePath: CHROME });
+  const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('console', (m) => { if (m.type() === 'error' && !/ERR_|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  await page.goto(FILE);
+  await page.waitForSelector('#nameIn');
+  console.log('mode', await page.evaluate(() => Net.mode), 'demoBadge hidden:', await page.evaluate(() => document.getElementById('demoBadge').hidden));
+  await page.fill('#nameIn', 'Андрей');
+  await page.click('[data-act="create"]');
+  await page.waitForSelector('.lobby');
+  await page.waitForFunction(() => window.App.state && window.App.state.players.length >= 6, null, { timeout: 15000 });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: 'shots/demo-lobby.png' });
+  await page.click('[data-a="start"]');
+  await page.waitForSelector('#game');
+  console.log('game started in demo');
+  await page.evaluate(async () => { const c = window.App.state.code; await Net.call('admin:auth', {}); await Net.call('admin:room', { code: c, action: 'speed', value: 0.05 }); await Net.call('admin:room', { code: c, action: 'auto' }); });
+  await page.waitForSelector('#end', { timeout: 200000 });
+  console.log('demo game ended');
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'shots/demo-end.png' });
+  console.log('errors', errors);
+  await browser.close();
+})().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
