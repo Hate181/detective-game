@@ -72,4 +72,4 @@
 2. `node scripts/e2e-game.js` и `node scripts/demo-check.js` без ошибок в консоли.
 3. `npm audit --omit=dev` без высоких уязвимостей.
 4. Баланс не уехал: `node scripts/strategy-lab.js` на 6, 8 и 10 игроках.
-5. Открыть `/rules`, `/contacts`, `/privacy`, `/terms`, `/offer` на телефоне и на большом экране.
+5. Открыть `/rules`, `/contacts`, `/privacy`, `/cookies` на телефоне и на большом экране.
