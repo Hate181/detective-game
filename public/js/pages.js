@@ -1,5 +1,5 @@
 /* Правила, контакты, политика конфиденциальности и соглашение о cookie.
-   Почта приходит от сервера (CONTACT_EMAIL), по умолчанию detective-platform-ops@proton.me. */
+   Почта приходит от сервера (CONTACT_EMAIL), по умолчанию support@detective-game.org. */
 (function () {
   const { esc } = UI;
   const C = window.DetectiveContent || {};

@@ -14,7 +14,7 @@
 
   const listeners = { state: [], status: [], kicked: [], left: [], me: [] };
   const emit = (type, data) => listeners[type].forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } });
-  const Net = { token, mode: 'server', offset: 0, listeners, store, me: { account: null, providers: {}, community: '', contact: 'detective-platform-ops@proton.me', ready: false } };
+  const Net = { token, mode: 'server', offset: 0, listeners, store, me: { account: null, providers: {}, community: '', contact: 'support@detective-game.org', ready: false } };
   Net.on = (type, fn) => { listeners[type].push(fn); };
   Net.now = () => Date.now() + Net.offset;
 

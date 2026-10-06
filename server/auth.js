@@ -183,7 +183,7 @@ function createAuth({ dataDir, port }) {
       res.json({
         account: acc ? { provider: acc.provider, name: acc.name, providerName: acc.providerName, custom: acc.custom, avatar: acc.avatar } : null,
         community: env('DISCORD_SERVER_URL', 'https://discord.gg/hfWsKkGVH'),
-        contact: env('CONTACT_EMAIL', 'detective-platform-ops@proton.me'),
+        contact: env('CONTACT_EMAIL', 'support@detective-game.org'),
         providers: { discord: !!(cfg.discord.id && cfg.discord.secret), google: !!(cfg.google.id && cfg.google.secret), email: true, dev },
       });
     });
