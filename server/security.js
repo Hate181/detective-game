@@ -82,6 +82,15 @@ function sameOrigin(origin, host) {
 // Сокет открывается с куками входа, поэтому чужой сайт не должен его открыть от имени игрока.
 const allowSocket = (req, cb) => cb(null, sameOrigin(req.headers.origin, req.headers.host));
 
+/** Старый адрес *.up.railway.app переводит на свой домен из PUBLIC_URL: одна ссылка, одни куки входа. */
+function canonical(req, res, next) {
+  const host = req.hostname || '';
+  if (!PUBLIC_URL || req.path === '/healthz' || !/\.up\.railway\.app$/.test(host)) return next();
+  const target = new URL(PUBLIC_URL);
+  if (target.hostname === host || !['GET', 'HEAD'].includes(req.method)) return next();
+  res.redirect(301, target.origin + req.originalUrl);
+}
+
 /** Все запросы к сайту с одного IP: 600 за 10 минут. Страница игры это около 20 файлов,
     так что компании за одним роутером хватает с запасом, а выкачать гигабайты трафика (за него платим) не выйдет. */
 const HTTP_WINDOW = 10 * 60e3, HTTP_MAX = Number(process.env.HTTP_PER_IP) || 600;
@@ -173,4 +182,5 @@ setInterval(() => {
   for (const [k, r] of roomsByIp) if (r.codes.every((c) => now - c.t > 6 * 3600e3)) roomsByIp.delete(k);
 }, 5 * 60e3).unref();
 
-module.exports = { ipEventOk, httpLimit, roomGuard, roomCreated, joinMissed, sameOrigin, allowSocket, postLimit, PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };
+module.exports = {
+  canonical, ipEventOk, httpLimit, roomGuard, roomCreated, joinMissed, sameOrigin, allowSocket, postLimit, PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };

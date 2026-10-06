@@ -58,6 +58,7 @@ const keyOk = (k) => {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', security.PROXY_HOPS);
+app.use(security.canonical);
 app.use(security.headers);
 app.use(security.httpLimit);
 // Сжатие: файлы игры уходят в 3–5 раз меньше, а исходящий трафик хостинг считает в деньгах.
