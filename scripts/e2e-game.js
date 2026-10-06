@@ -46,11 +46,12 @@ const TAG = process.env.TAG || 'g';
 
   const seen = {};
   const driver = async (p, idx) => {
-    const t0 = Date.now(); let carded = false; let lastHostPress = 0;
+    const t0 = Date.now(); let carded = false; let lastHostPress = 0; let lastS = null;
     for (;;) {
-      if (Date.now() - t0 > 250000) return 'timeout';
+      if (Date.now() - t0 > 250000) return 'timeout ' + JSON.stringify(lastS);
       const s = await p.evaluate(() => { const g = window.App.state.game; if (!g) return null; return { phase: g.phase, round: g.round, me: g.me.id, ready: g.me.ready, status: g.me.status, speaker: g.turn && g.turn.speakerId, dsp: g.defense && g.defense.speaker, isHost: g.me.isHost, voted: g.vote && g.vote.my, ov: g.overlay && g.overlay.type, nomineeId: g.overlay && g.overlay.nomineeId, kicks: g.kicks.length, readyN: g.players.filter((x) => x.ready).length, n: g.players.length, canCard: g.me.can.card }; }).catch(() => null);
       if (!s) { await p.waitForTimeout(300); continue; }
+      lastS = s;
       const q = async (sel) => { const el = await p.$(sel); if (el && await el.isEnabled().catch(() => false) && await el.isVisible().catch(() => false)) { await el.click({ timeout: 2000 }).catch(() => {}); return true; } return false; };
       if (s.phase === 'ended') return 'ended';
       const key = `${s.phase}:${s.round}:${s.speaker || ''}`;

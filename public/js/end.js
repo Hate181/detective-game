@@ -27,6 +27,7 @@
         if (a === 'tab') { this.tab = b.dataset.tab; this.render(); if (this.tab === 'season') this.loadSeason(); }
         else if (a === 'next') { const r = await Net.call('room:next'); if (!r.ok) fail(r); }
         else if (a === 'leave') Net.call('room:leave');
+        else if (a === 'share') { b.disabled = true; try { await ShareCard.open(this.g.results, this.g); } finally { b.disabled = false; } }
         else if (a === 'close') {
           const ok = await UI.confirmBox({ title: 'Закрыть комнату?', sub: 'Все игроки освободятся и смогут зайти в другую игру. Итоги этого дела останутся в сезонной таблице.', ok: 'Закрыть комнату', danger: true });
           if (ok) { const r = await Net.call('room:close'); if (!r.ok) fail(r); }
@@ -71,7 +72,8 @@
           ${R.accompliceId ? `<div>${avatar(nm(R.accompliceId), idx[R.accompliceId])}<span><span class="label">Сообщник</span><br><b>${esc(nm(R.accompliceId))}</b></span></div>` : ''}
           <div><span class="label">Место и время</span><br><b>${esc(R.scene)}, ${esc(R.murderTime)}</b></div>
           <div><span class="label">Ваш результат</span><br><b>${R.score[me.id]} очк. · ${myRank} место из ${g.players.length}</b></div>
-        </div>`);
+        </div>
+        <div class="e-share"><button class="btn" data-a="share">Картинка с итогами для чата</button></div>`);
 
       setHtml(this.root.querySelector('#eTabs'), TABS.map(([k, t]) => `<button role="tab" data-a="tab" data-tab="${k}" class="${this.tab === k ? 'on' : ''}" aria-selected="${this.tab === k}">${t}</button>`).join(''));
 
