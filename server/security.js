@@ -139,10 +139,10 @@ function joinMissed(ip) {
 
 // Действия со всех сокетов одного IP вместе: 30 в секунду, всплеск до 90. Компании из 10 человек хватает,
 // а 30 вкладок одного человека не умножат лимит в 30 раз.
-const ipBuckets = new Map();
+const ipBuckets = new Map(), IP_RATE = Number(process.env.ACTIONS_PER_IP) || 30;
 function ipEventOk(ip) {
   let b = ipBuckets.get(ip);
-  if (!b) { b = eventLimiter(30, 90); ipBuckets.set(ip, b); }
+  if (!b) { b = eventLimiter(IP_RATE, IP_RATE * 3); ipBuckets.set(ip, b); }
   b.seen = Date.now();
   return b();
 }
