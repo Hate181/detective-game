@@ -80,6 +80,26 @@ function createAuth({ dataDir, port }) {
   const regs = new Map();
   const regLimited = (ip) => { const r = regs.get(ip); if (!r || Date.now() - r.first > 3600e3) { regs.set(ip, { n: 1, first: Date.now() }); return false; } r.n++; return r.n > 5; };
 
+  // Учёт аккаунтов для админки: кто и когда впервые вошёл, когда заходил последний раз.
+  const USERS = path.join(dataDir, 'users.json');
+  let users = Object.create(null);
+  try { Object.assign(users, JSON.parse(fs.readFileSync(USERS, 'utf8'))); } catch (e) { /* ещё нет */ }
+  let usersDirty = false;
+  const saveUsers = () => {
+    if (!usersDirty) return; usersDirty = false;
+    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(USERS + '.tmp', JSON.stringify(users)); fs.renameSync(USERS + '.tmp', USERS); } catch (e) { console.error('users', e.message); }
+  };
+  setInterval(saveUsers, 10e3).unref();
+  /** Отметить аккаунт: первый вход создаёт запись, следующие обновляют время и имя. */
+  function touchUser(id, provider, name, at = Date.now()) {
+    const u = users[id];
+    if (!u) users[id] = { p: provider, n: String(name || '').slice(0, 40), first: at, last: at };
+    else { if (at - u.last < 60e3 && u.n === name) return; u.last = Math.max(u.last, at); if (name) u.n = String(name).slice(0, 40); }
+    usersDirty = true;
+  }
+  // Аккаунты по почте, заведённые до появления учёта.
+  Object.entries(accounts).forEach(([, a]) => { if (!users['email:' + a.id]) touchUser('email:' + a.id, 'email', a.name, a.at || Date.now()); });
+
   /** Имя для игры: без невидимых символов, 2–18 знаков, без служебных слов. */
   const cleanName = (v) => {
     const n = String(typeof v === 'string' ? v : '').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 18);
@@ -166,7 +186,10 @@ function createAuth({ dataDir, port }) {
     /* ---------- Вход по почте ---------- */
     const json = require('express').json({ limit: '2kb' });
     const sameSite = (req, res) => { const o = req.get('origin'); if (o && o !== baseUrl(req)) { res.status(403).json({ ok: false, error: 'Запрос не с сайта игры.' }); return false; } res.set('Cache-Control', 'no-store'); return true; };
-    const startSession = (req, res, a) => res.set('Set-Cookie', cookie(SESSION_COOKIE, pack({ p: 'email', id: a.id, n: a.name, a: '', v: a.v, exp: Date.now() + SESSION_DAYS * 864e5 }), { maxAge: SESSION_DAYS * 86400, secure: isHttps(req) }));
+    const startSession = (req, res, a) => {
+      touchUser('email:' + a.id, 'email', profiles['email:' + a.id] || a.name);
+      res.set('Set-Cookie', cookie(SESSION_COOKIE, pack({ p: 'email', id: a.id, n: a.name, a: '', v: a.v, exp: Date.now() + SESSION_DAYS * 864e5 }), { maxAge: SESSION_DAYS * 86400, secure: isHttps(req) }));
+    };
 
     app.post('/auth/email/register', json, async (req, res) => {
       if (!sameSite(req, res)) return;
@@ -258,6 +281,7 @@ function createAuth({ dataDir, port }) {
         if (!ur.ok) throw new Error(`user ${ur.status}`);
         const prof = p.profile(await ur.json());
         if (!prof.id || prof.id === 'undefined') throw new Error('no id');
+        touchUser(`${name}:${prof.id.slice(0, 64)}`, name, profiles[`${name}:${prof.id.slice(0, 64)}`] || prof.name);
         res.append('Set-Cookie', cookie(SESSION_COOKIE, pack({ p: name, id: prof.id.slice(0, 64), n: String(prof.name).slice(0, 40), a: /^https:\/\//.test(prof.avatar) ? prof.avatar.slice(0, 300) : '', exp: Date.now() + SESSION_DAYS * 864e5 }), { maxAge: SESSION_DAYS * 86400, secure: isHttps(req) }));
         back('ok');
       } catch (e) {
@@ -281,7 +305,26 @@ function createAuth({ dataDir, port }) {
     return { email: mail, name: a.name, password: temp };
   }
 
-  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword };
+  /** Для админки: сколько аккаунтов и последние регистрации. Почта видна только у входа по почте. */
+  function usersSummary(online = new Set()) {
+    const now = Date.now(), week = 7 * 864e5;
+    const mailOf = new Map(Object.entries(accounts).map(([m, a]) => ['email:' + a.id, m]));
+    const list = Object.entries(users).filter(([id]) => !id.startsWith('dev:'));
+    const by = {};
+    list.forEach(([, u]) => { by[u.p] = (by[u.p] || 0) + 1; });
+    const rows = list.sort((a, b) => b[1].first - a[1].first).slice(0, 50).map(([id, u]) => ({
+      name: profiles[id] || u.n, provider: u.p, email: mailOf.get(id) || '', first: u.first, last: u.last, online: online.has(id),
+    }));
+    return {
+      total: list.length, byProvider: by,
+      new7: list.filter(([, u]) => now - u.first < week).length,
+      active7: list.filter(([, u]) => now - u.last < week).length,
+      online: list.filter(([id]) => online.has(id)).length,
+      rows,
+    };
+  }
+
+  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword, touchUser, usersSummary, flushUsers: () => { usersDirty = true; saveUsers(); } };
 }
 
 module.exports = { createAuth };

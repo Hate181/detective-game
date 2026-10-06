@@ -115,6 +115,7 @@ io.on('connection', (socket) => {
   if (account) {
     token = auth.tokenFor(account);
     hub.setIdentity(token, account);
+    auth.touchUser(account.id, account.provider, account.name);
     hub.migrate(guest, token);
   }
   socket.data.token = token;
@@ -141,6 +142,11 @@ io.on('connection', (socket) => {
       if (ok) hub.setAdmin(token, true); else security.adminFailed(ip);
       return ack(ok ? { ok: true } : { ok: false, code: 'bad_key', error: 'Пароль не подошёл.' });
     }
+    if (event === 'admin:users') {
+      if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
+      const online = new Set([...socketsOf.keys()].map((t) => hub.identityOf(t)).filter(Boolean).map((a) => a.id));
+      return ack(Object.assign({ ok: true }, auth.usersSummary(online)));
+    }
     if (event === 'admin:reset_password') {
       // Писем сайт не шлёт: забывшему пароль админ выдаёт временный, игрок меняет его в кабинете.
       if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
@@ -163,7 +169,7 @@ setInterval(() => { try { hub.tick(); } catch (e) { console.error('tick', e); } 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection', e));
 process.on('uncaughtException', (e) => console.error('uncaughtException', e));
 // Перезапуск на хостинге: перестаём принимать новых и закрываемся аккуратно.
-process.on('SIGTERM', () => { console.log('SIGTERM: завершаю работу'); io.close(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 5000).unref(); });
+process.on('SIGTERM', () => { console.log('SIGTERM: завершаю работу'); auth.flushUsers(); io.close(); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 5000).unref(); });
 
 server.listen(PORT, () => {
   console.log(`Detective: http://localhost:${PORT}`);

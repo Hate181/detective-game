@@ -875,3 +875,15 @@ img.acct-av { object-fit: cover; }
 .em-err:empty { min-height: 0; }
 .pf-pass { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; max-width: 620px; }
 @media (max-width: 560px) { .pf-pass { grid-template-columns: 1fr; } }
+
+/* ---------- Админка: аккаунты ---------- */
+.u-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.u-tiles > div { border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 4px; background: var(--panel-2); }
+.u-tiles b { font: 700 28px/1 var(--f-display); color: var(--amber-hi); font-variant-numeric: tabular-nums; }
+.u-tiles span { font: 500 11px/1.2 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.u-table { overflow-x: auto; }
+.u-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.u-table th { text-align: left; font: 500 11px/1.2 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 8px 0; border-bottom: 1px solid var(--line); }
+.u-table td { padding: 8px 10px 8px 0; border-bottom: 1px dashed var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.u-on { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; vertical-align: middle; }
+@media (max-width: 560px) { .u-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

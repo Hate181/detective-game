@@ -75,11 +75,22 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   r = await post('/auth/email/login', { email: 'mira@example.com', password: reset.password });
   check(r.status === 429, 'блокировка держится и для верного пароля');
 
+  // учёт аккаунтов для админки
+  auth.touchUser('discord:42', 'discord', 'Игорь');
+  auth.touchUser('dev:test', 'dev', 'Тест');
+  const sum = auth.usersSummary(new Set(['discord:42']));
+  check(sum.total === 2 && sum.byProvider.email === 1 && sum.byProvider.discord === 1, `админка видит 2 аккаунта: ${JSON.stringify(sum.byProvider)}`);
+  check(sum.new7 === 2 && sum.online === 1, 'новые за неделю и кто на сайте');
+  const mailRow = sum.rows.find((u) => u.provider === 'email');
+  check(mailRow && mailRow.email === 'mira@example.com' && mailRow.name === 'Мира', 'у входа по почте видна почта');
+  auth.flushUsers();
+
   // перезапуск: аккаунты читаются с диска
   const auth2 = createAuth({ dataDir: dir, port: 0 });
   check(auth2.accountFrom(r.cookie || `d_sess=${''}`) === null, 'пустая кука не даёт входа');
   const again = await auth2.resetPassword('mira@example.com');
   check(!!again, 'после перезапуска аккаунт на месте');
+  check(auth2.usersSummary().total === 2, 'учёт аккаунтов переживает перезапуск');
 
   srv.close();
   fs.rmSync(dir, { recursive: true, force: true });

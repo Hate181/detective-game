@@ -71,13 +71,28 @@
       if (this.tab === 'test') body.innerHTML = this.testHtml();
       else if (this.tab === 'rooms') { body.innerHTML = '<div class="panel"><p class="empty-note">Загружаем…</p></div>'; this.loadRooms(); }
       else if (this.tab === 'cases') body.innerHTML = this.casesHtml();
-      else if (this.tab === 'players') body.innerHTML = this.playersHtml();
+      else if (this.tab === 'players') { body.innerHTML = this.playersHtml(); this.loadUsers(); }
       else body.innerHTML = this.simHtml();
     },
 
     /* ---------- Игроки: сброс пароля для входа по почте ---------- */
+    async loadUsers() {
+      const box = this.root.querySelector('#uStats');
+      if (!box) return;
+      const r = await Net.call('admin:users', {});
+      if (!r.ok) { box.innerHTML = `<p class="empty-note">${esc(r.error || 'Список аккаунтов есть только на сервере игры.')}</p>`; return; }
+      const PROV = { discord: 'Discord', email: 'Почта', google: 'Google' };
+      const when = (t) => { try { return new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+      const tiles = [['Всего', r.total], ['Новых за 7 дней', r.new7], ['Заходили за 7 дней', r.active7], ['Сейчас на сайте', r.online]];
+      const split = Object.entries(r.byProvider).map(([k, n]) => `${PROV[k] || k}: ${n}`).join(' · ');
+      box.innerHTML = `<div class="u-tiles">${tiles.map(([t, n]) => `<div><b>${n}</b><span>${t}</span></div>`).join('')}</div>
+        <p class="muted" style="margin:10px 0 16px">${split || 'Пока никто не зарегистрировался.'}</p>
+        ${r.rows.length ? `<div class="u-table"><table><thead><tr><th>Имя</th><th>Вход</th><th>Почта</th><th>Первый вход</th><th>Последний</th></tr></thead><tbody>${r.rows.map((u) => `<tr><td>${u.online ? '<i class="u-on" title="на сайте"></i>' : ''}${esc(u.name)}</td><td>${esc(PROV[u.provider] || u.provider)}</td><td>${esc(u.email)}</td><td>${when(u.first)}</td><td>${when(u.last)}</td></tr>`).join('')}</tbody></table></div>
+        <p class="muted" style="font-size:12.5px;margin-top:8px">Показаны 50 последних регистраций.</p>` : ''}`;
+    },
     playersHtml() {
-      return `<section class="panel" style="max-width:640px"><div class="panel-head"><h2>Сброс пароля</h2></div>
+      return `<section class="panel" style="margin-bottom:18px"><div class="panel-head"><h2>Аккаунты</h2><button class="btn btn-sm" data-a="users-reload">Обновить</button></div><div id="uStats"><p class="empty-note">Загружаем…</p></div></section>
+      <section class="panel" style="max-width:640px"><div class="panel-head"><h2>Сброс пароля</h2></div>
         <p class="muted">Писем сайт не отправляет. Если игрок забыл пароль, впишите его почту: сайт выдаст временный пароль, а все старые входы этого игрока закроются. Передайте пароль игроку лично, пусть сменит его в личном кабинете.</p>
         <div class="row2" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px"><input class="input" id="rpMail" type="email" placeholder="почта игрока" aria-label="Почта игрока"><button class="btn btn-primary" data-a="reset-pass">Сбросить</button></div>
         <div id="rpOut" style="margin-top:14px"></div></section>`;
@@ -259,6 +274,7 @@
       else if (a === 'back') location.hash = `#/room/${this.st.code}`;
       else if (a === 'set') { this.testOpts[b.dataset.k] = b.dataset.v; this.root.querySelector('#aBody').innerHTML = this.testHtml(); }
       else if (a === 'create-test') this.createTest();
+      else if (a === 'users-reload') this.loadUsers();
       else if (a === 'reset-pass') {
         const mail = this.root.querySelector('#rpMail').value.trim();
         if (!mail) return;
