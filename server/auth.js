@@ -1,4 +1,4 @@
-/* Вход через Discord и Google. Без внешних пакетов: OAuth 2.0 (код авторизации) и подписанная кука сессии.
+/* Вход через Discord, по почте с паролем и (если заданы ключи) через Google. Без внешних пакетов: OAuth 2.0 (код авторизации) и подписанная кука сессии.
    Провайдер включается, когда заданы его CLIENT_ID и CLIENT_SECRET. Адреса провайдеров можно переопределить
    переменными окружения, на этом держатся автотесты (поддельный провайдер на localhost). */
 const crypto = require('crypto');
@@ -59,6 +59,27 @@ function createAuth({ dataDir, port }) {
   const saveProfiles = () => {
     try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(PROFILES + '.tmp', JSON.stringify(profiles)); fs.renameSync(PROFILES + '.tmp', PROFILES); } catch (e) { console.error('profiles', e.message); }
   };
+  // Аккаунты по почте: почта, соль и хэш пароля (scrypt). Писем сайт не отправляет, сброс пароля делает админ.
+  const ACCOUNTS = path.join(dataDir, 'accounts.json');
+  let accounts = Object.create(null);
+  try { Object.assign(accounts, JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8'))); } catch (e) { /* ещё нет */ }
+  const byId = new Map(Object.entries(accounts).map(([mail, a]) => [a.id, mail]));
+  const saveAccounts = () => {
+    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(ACCOUNTS + '.tmp', JSON.stringify(accounts), { mode: 0o600 }); fs.renameSync(ACCOUNTS + '.tmp', ACCOUNTS); } catch (e) { console.error('accounts', e.message); }
+  };
+  const cleanMail = (v) => { const m = String(typeof v === 'string' ? v : '').trim().toLowerCase(); return m.length <= 200 && /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(m) ? m : null; };
+  const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+  const hashPass = (pass, salt) => new Promise((ok, no) => crypto.scrypt(String(pass), Buffer.from(salt, 'hex'), 64, SCRYPT, (e, k) => (e ? no(e) : ok(k.toString('hex')))));
+  const passOk = (v) => typeof v === 'string' && v.length >= 8 && v.length <= 128;
+  // Подбор пароля: не больше 10 ошибок за 15 минут с одного адреса и на одну почту.
+  const fails = new Map();
+  const FAIL_WINDOW = 15 * 60e3, FAIL_MAX = 10;
+  const locked = (k) => { const r = fails.get(k); if (!r) return false; if (Date.now() - r.first > FAIL_WINDOW) { fails.delete(k); return false; } return r.n >= FAIL_MAX; };
+  const failed = (k) => { const r = fails.get(k); if (!r || Date.now() - r.first > FAIL_WINDOW) fails.set(k, { n: 1, first: Date.now() }); else r.n++; };
+  // Регистрации: не больше 5 в час с одного адреса.
+  const regs = new Map();
+  const regLimited = (ip) => { const r = regs.get(ip); if (!r || Date.now() - r.first > 3600e3) { regs.set(ip, { n: 1, first: Date.now() }); return false; } r.n++; return r.n > 5; };
+
   /** Имя для игры: без невидимых символов, 2–18 знаков, без служебных слов. */
   const cleanName = (v) => {
     const n = String(typeof v === 'string' ? v : '').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 18);
@@ -90,6 +111,11 @@ function createAuth({ dataDir, port }) {
   function accountFrom(cookieHeader) {
     const s = unpack(parseCookies(cookieHeader)[SESSION_COOKIE]);
     if (!s || !s.p || !s.id || !s.exp || s.exp < Date.now()) return null;
+    if (s.p === 'email') {
+      // Пароль сменили или сбросили: старые входы больше не действуют.
+      const mail = byId.get(s.id), a = mail && accounts[mail];
+      if (!a || a.v !== s.v) return null;
+    }
     const id = `${s.p}:${s.id}`;
     const own = profiles[id];
     return { provider: s.p, id, name: own || String(s.n || '').slice(0, 40), providerName: String(s.n || '').slice(0, 40), custom: !!own, avatar: String(s.a || '') };
@@ -117,7 +143,7 @@ function createAuth({ dataDir, port }) {
         account: acc ? { provider: acc.provider, name: acc.name, providerName: acc.providerName, custom: acc.custom, avatar: acc.avatar } : null,
         community: env('DISCORD_SERVER_URL', 'https://discord.gg/hfWsKkGVH'),
         contact: env('CONTACT_EMAIL', 'detective-platform-ops@proton.me'),
-        providers: { discord: !!(cfg.discord.id && cfg.discord.secret), google: !!(cfg.google.id && cfg.google.secret), dev },
+        providers: { discord: !!(cfg.discord.id && cfg.discord.secret), google: !!(cfg.google.id && cfg.google.secret), email: true, dev },
       });
     });
 
@@ -127,7 +153,7 @@ function createAuth({ dataDir, port }) {
       const origin = req.get('origin');
       if (origin && origin !== baseUrl(req)) return res.status(403).json({ ok: false });
       const acc = accountFrom(req.headers.cookie);
-      if (!acc) return res.status(401).json({ ok: false, error: 'Войдите через Discord или Google.' });
+      if (!acc) return res.status(401).json({ ok: false, error: 'Сначала войдите.' });
       const body = req.body || {};
       if (body.reset === true) { delete profiles[acc.id]; saveProfiles(); return res.json({ ok: true, name: acc.providerName }); }
       const name = cleanName(body.name);
@@ -135,6 +161,58 @@ function createAuth({ dataDir, port }) {
       profiles[acc.id] = name;
       saveProfiles();
       res.json({ ok: true, name });
+    });
+
+    /* ---------- Вход по почте ---------- */
+    const json = require('express').json({ limit: '2kb' });
+    const sameSite = (req, res) => { const o = req.get('origin'); if (o && o !== baseUrl(req)) { res.status(403).json({ ok: false, error: 'Запрос не с сайта игры.' }); return false; } res.set('Cache-Control', 'no-store'); return true; };
+    const startSession = (req, res, a) => res.set('Set-Cookie', cookie(SESSION_COOKIE, pack({ p: 'email', id: a.id, n: a.name, a: '', v: a.v, exp: Date.now() + SESSION_DAYS * 864e5 }), { maxAge: SESSION_DAYS * 86400, secure: isHttps(req) }));
+
+    app.post('/auth/email/register', json, async (req, res) => {
+      if (!sameSite(req, res)) return;
+      const b = req.body || {};
+      const mail = cleanMail(b.email), name = cleanName(b.name);
+      if (!mail) return res.status(400).json({ ok: false, field: 'email', error: 'Проверьте почту.' });
+      if (!passOk(b.password)) return res.status(400).json({ ok: false, field: 'password', error: 'Пароль от 8 до 128 знаков.' });
+      if (!name) return res.status(400).json({ ok: false, field: 'name', error: 'Имя в игре от 2 до 18 знаков.' });
+      if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
+      if (regLimited(req.ip)) return res.status(429).json({ ok: false, error: 'Слишком много регистраций. Попробуйте через час.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const a = { id: crypto.randomBytes(12).toString('hex'), name, salt, hash: await hashPass(b.password, salt), v: 1, at: Date.now() };
+      if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
+      accounts[mail] = a; byId.set(a.id, mail); saveAccounts();
+      startSession(req, res, a);
+      res.json({ ok: true });
+    });
+
+    app.post('/auth/email/login', json, async (req, res) => {
+      if (!sameSite(req, res)) return;
+      const b = req.body || {};
+      const mail = cleanMail(b.email);
+      if (locked('ip:' + req.ip) || (mail && locked('mail:' + mail))) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
+      const a = mail && accounts[mail];
+      // Без аккаунта считаем хэш впустую, чтобы по времени ответа нельзя было узнать, есть ли такая почта.
+      const got = await hashPass(typeof b.password === 'string' ? b.password.slice(0, 128) : '', a ? a.salt : '00'.repeat(16));
+      const good = !!a && crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'));
+      if (!good) { failed('ip:' + req.ip); if (mail) failed('mail:' + mail); return res.status(401).json({ ok: false, error: 'Неверная почта или пароль.' }); }
+      startSession(req, res, a);
+      res.json({ ok: true });
+    });
+
+    // Смена пароля из личного кабинета: нужен старый пароль, остальные входы сбрасываются.
+    app.post('/auth/email/password', json, async (req, res) => {
+      if (!sameSite(req, res)) return;
+      const acc = accountFrom(req.headers.cookie);
+      if (!acc || acc.provider !== 'email') return res.status(401).json({ ok: false, error: 'Сначала войдите по почте.' });
+      const mail = byId.get(acc.id.slice(6)), a = accounts[mail];
+      const b = req.body || {};
+      if (locked('mail:' + mail)) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
+      const got = await hashPass(typeof b.old === 'string' ? b.old.slice(0, 128) : '', a.salt);
+      if (!crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'))) { failed('mail:' + mail); return res.status(401).json({ ok: false, field: 'old', error: 'Старый пароль не подошёл.' }); }
+      if (!passOk(b.password)) return res.status(400).json({ ok: false, field: 'password', error: 'Новый пароль от 8 до 128 знаков.' });
+      a.salt = crypto.randomBytes(16).toString('hex'); a.hash = await hashPass(b.password, a.salt); a.v += 1; saveAccounts();
+      startSession(req, res, a);
+      res.json({ ok: true });
     });
 
     app.post('/auth/logout', (req, res) => {
@@ -194,7 +272,16 @@ function createAuth({ dataDir, port }) {
     return { enabled: enabled(), redirects: list, dev };
   }
 
-  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies };
+  /** Для админки: новый временный пароль игроку, который забыл свой. Все его входы сбрасываются. */
+  async function resetPassword(email) {
+    const mail = cleanMail(email), a = mail && accounts[mail];
+    if (!a) return null;
+    const temp = crypto.randomBytes(9).toString('base64url');
+    a.salt = crypto.randomBytes(16).toString('hex'); a.hash = await hashPass(temp, a.salt); a.v += 1; saveAccounts();
+    return { email: mail, name: a.name, password: temp };
+  }
+
+  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword };
 }
 
 module.exports = { createAuth };

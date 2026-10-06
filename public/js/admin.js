@@ -3,7 +3,7 @@
   const { esc, icon, setHtml, toast, fail } = UI;
   const Content = UI.Content, Cases = window.DetectiveCases, Gen = window.DetectiveGenerator;
   const Screens = (window.Screens = window.Screens || {});
-  const TABS = [['test', 'Тестовая комната'], ['rooms', 'Комнаты'], ['cases', 'Дела'], ['sim', 'Симуляция']];
+  const TABS = [['test', 'Тестовая комната'], ['rooms', 'Комнаты'], ['cases', 'Дела'], ['sim', 'Симуляция'], ['players', 'Игроки']];
   const ICON_NAMES = { mansion: 'Особняк', train: 'Поезд', corporate: 'Бокал', yacht: 'Якорь', theatre: 'Театр', hotel: 'Отель', generic: 'Лупа', museum: 'Музей', lighthouse: 'Маяк', mountain: 'Горы', casino: 'Казино', film: 'Кино', clinic: 'Клиника', book: 'Книга', circus: 'Цирк', airship: 'Дирижабль', pyramid: 'Пирамида', radio: 'Радио', wine: 'Вино', bank: 'Банк', spa: 'Санаторий', steamboat: 'Пароход', chess: 'Шахматы' };
   const SPEEDS = [[1, 'Обычная'], [0.5, '×2'], [0.25, '×4'], [0.1, '×10'], [0.05, '×20']];
   const ROLES = [['random', 'Случайная'], ['killer', 'Убийца'], ['innocent', 'Невиновный'], ['accomplice', 'Сообщник']];
@@ -71,7 +71,16 @@
       if (this.tab === 'test') body.innerHTML = this.testHtml();
       else if (this.tab === 'rooms') { body.innerHTML = '<div class="panel"><p class="empty-note">Загружаем…</p></div>'; this.loadRooms(); }
       else if (this.tab === 'cases') body.innerHTML = this.casesHtml();
+      else if (this.tab === 'players') body.innerHTML = this.playersHtml();
       else body.innerHTML = this.simHtml();
+    },
+
+    /* ---------- Игроки: сброс пароля для входа по почте ---------- */
+    playersHtml() {
+      return `<section class="panel" style="max-width:640px"><div class="panel-head"><h2>Сброс пароля</h2></div>
+        <p class="muted">Писем сайт не отправляет. Если игрок забыл пароль, впишите его почту: сайт выдаст временный пароль, а все старые входы этого игрока закроются. Передайте пароль игроку лично, пусть сменит его в личном кабинете.</p>
+        <div class="row2" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px"><input class="input" id="rpMail" type="email" placeholder="почта игрока" aria-label="Почта игрока"><button class="btn btn-primary" data-a="reset-pass">Сбросить</button></div>
+        <div id="rpOut" style="margin-top:14px"></div></section>`;
     },
 
     /* ---------- Тестовая комната ---------- */
@@ -250,6 +259,16 @@
       else if (a === 'back') location.hash = `#/room/${this.st.code}`;
       else if (a === 'set') { this.testOpts[b.dataset.k] = b.dataset.v; this.root.querySelector('#aBody').innerHTML = this.testHtml(); }
       else if (a === 'create-test') this.createTest();
+      else if (a === 'reset-pass') {
+        const mail = this.root.querySelector('#rpMail').value.trim();
+        if (!mail) return;
+        if (!(await UI.confirmBox({ title: 'Сбросить пароль?', sub: `Старый пароль ${mail} перестанет работать.`, ok: 'Сбросить', danger: true }))) return;
+        const r = await Net.call('admin:reset_password', { email: mail });
+        const out = this.root.querySelector('#rpOut');
+        if (!r.ok) { fail(r); out.innerHTML = ''; return; }
+        out.innerHTML = `<div class="resume" style="margin:0"><span>${esc(r.name)} (${esc(r.email)}). Временный пароль: <b class="mono">${esc(r.password)}</b></span><button class="btn btn-sm" data-a="copy-pass">Скопировать</button></div>`;
+        this.tempPass = r.password;
+      } else if (a === 'copy-pass') UI.copyText(this.tempPass, 'Пароль скопирован');
       else if (a === 'room') { const r = await Net.call('admin:room', { code: b.dataset.c, action: b.dataset.v }); if (!r.ok) fail(r); else { this.rooms = r.rooms || this.rooms; this.loadRooms(); } }
       else if (a === 'close') { if (await UI.confirmBox({ title: `Закрыть комнату ${b.dataset.c}?`, sub: 'Игроков выкинет в главное меню, партия пропадёт.', ok: 'Закрыть', danger: true })) { const r = await Net.call('admin:room', { code: b.dataset.c, action: 'close' }); if (!r.ok) fail(r); else this.loadRooms(); } }
       else if (a === 'edit') { this.edit = b.dataset.id; this.root.querySelector('#aBody').innerHTML = this.casesHtml(); }

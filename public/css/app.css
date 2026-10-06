@@ -865,3 +865,13 @@ img.acct-av { object-fit: cover; }
 }
 .profile .stamp { animation: none; }
 .nowrap { white-space: nowrap; }
+
+/* ---------- Вход по почте ---------- */
+.em-tabs { margin: 4px 0 14px; }
+.em-tabs button { padding: 8px 16px; }
+.em-form { display: grid; gap: 12px; }
+.em-form .hint, .modal .em-form small.hint { color: var(--muted); font-size: 12.5px; }
+.em-err { margin: 0; min-height: 1.2em; color: var(--red); font-size: 13.5px; }
+.em-err:empty { min-height: 0; }
+.pf-pass { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; max-width: 620px; }
+@media (max-width: 560px) { .pf-pass { grid-template-columns: 1fr; } }

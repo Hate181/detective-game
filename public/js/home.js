@@ -144,7 +144,6 @@
 </div></section>`;
 
   const DISCORD = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 5.3A16.5 16.5 0 0 0 15.5 4l-.2.4a15 15 0 0 1 3.7 1.9 13.6 13.6 0 0 0-12.2-.1A15 15 0 0 1 10.5 4.4L10.3 4a16.5 16.5 0 0 0-4.1 1.3C3.6 9.200 2.900 13 3.200 16.700a16.600 16.600 0 0 0 5 2.500l1.100-1.700a10.700 10.700 0 0 1-1.700-.8l.4-.3a11.800 11.800 0 0 0 10 0l.4.3c-.5.3-1.100.6-1.700.8l1.100 1.700a16.500 16.500 0 0 0 5-2.500c.4-4.300-.7-8-2.900-11.400ZM9.500 14.500c-1 0-1.800-.9-1.800-2s.8-2 1.800-2 1.800.9 1.800 2-.8 2-1.800 2Zm5 0c-1 0-1.800-.9-1.800-2s.8-2 1.800-2 1.800.9 1.800 2-.8 2-1.800 2Z"/></svg>';
-  const GOOGLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#ea4335" d="M12 10.200v3.900h5.500c-.2 1.300-1.600 3.800-5.500 3.800a6 6 0 0 1 0-12c1.900 0 3.100.8 3.800 1.500l2.600-2.500A9.500 9.500 0 0 0 12 2.500a9.500 9.500 0 1 0 0 19c5.500 0 9.100-3.800 9.100-9.300 0-.6-.1-1.100-.2-1.600H12Z"/></svg>';
   const phaseLabel = (st) => {
     const g = st.game;
     if (st.status === 'lobby' || !g) return 'Идёт сбор игроков.';
@@ -177,7 +176,7 @@
       const put = (el, html) => { if (el._h !== html) { el._h = html; el.innerHTML = html; } };
       const community = root.querySelector('#community');
       const renderAuth = () => {
-        const me = Net.me || {}, pr = me.providers || {};
+        const me = Net.me || {};
         put(community, me.community ? `Нет компании? <a href="${esc(me.community)}" target="_blank" rel="noopener noreferrer">${DISCORD} Найдите её в нашем Discord</a>` : '');
         const a = me.account;
         if (a) {
@@ -185,14 +184,9 @@
           return;
         }
         const g = App.guestName();
-        const demo = Net.mode === 'demo';
-        const btns = demo || (!pr.discord && !pr.google)
-          ? `<button class="btn" type="button" aria-disabled="true" data-off-auth>${DISCORD} Discord</button><button class="btn" type="button" aria-disabled="true" data-off-auth>${GOOGLE} Google</button>`
-          : `${pr.discord ? `<a class="btn" href="/auth/discord">${DISCORD} Discord</a>` : ''}${pr.google ? `<a class="btn" href="/auth/google">${GOOGLE} Google</a>` : ''}`;
         put(authRow, `<p class="as-who"><span class="who-av" style="background:${esc(App.hue(g))}">Г</span><span>Вы зайдёте как <b>${esc(g)}</b></span></p>
-          <div class="lbl">Войдите, чтобы играть под своим именем</div><div class="auth-btns">${btns}${pr.dev ? '<a class="btn" href="/auth/dev?name=Тест">Тестовый вход</a>' : ''}</div>`);
+          <div class="lbl">Войдите, чтобы играть под своим именем</div>${App.loginButtons()}`);
       };
-      authRow.addEventListener('click', (e) => { if (e.target.closest('[data-off-auth]')) toast(Net.mode === 'demo' ? 'В демо входа нет, играйте гостем.' : 'Вход через Discord и Google скоро заработает. Пока можно играть гостем.'); });
       const renderResume = (st) => {
         if (!st) { put(resume, ''); return; }
         const g = st.game;

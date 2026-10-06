@@ -141,6 +141,11 @@ io.on('connection', (socket) => {
       if (ok) hub.setAdmin(token, true); else security.adminFailed(ip);
       return ack(ok ? { ok: true } : { ok: false, code: 'bad_key', error: 'Пароль не подошёл.' });
     }
+    if (event === 'admin:reset_password') {
+      // Писем сайт не шлёт: забывшему пароль админ выдаёт временный, игрок меняет его в кабинете.
+      if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
+      return auth.resetPassword(payload && payload.email).then((r) => ack(r ? Object.assign({ ok: true }, r) : { ok: false, error: 'Такой почты среди аккаунтов нет.' }), () => ack({ ok: false, error: 'Не получилось.' }));
+    }
     const res = hub.handle(token, event, payload || {});
     if (res.ok && event === 'room:leave') socket.emit('room:left');
     ack(res);
@@ -163,7 +168,7 @@ process.on('SIGTERM', () => { console.log('SIGTERM: завершаю работ�
 server.listen(PORT, () => {
   console.log(`Detective: http://localhost:${PORT}`);
   const a = auth.describe();
-  console.log(a.enabled.length ? `Вход: ${a.enabled.join(', ')}. Адреса возврата, которые нужно внести у провайдера:\n  ${a.redirects.join('\n  ')}` : 'Вход через Discord и Google выключен: не заданы DISCORD_CLIENT_ID/SECRET и GOOGLE_CLIENT_ID/SECRET. Все играют гостями.');
+  console.log(`Вход: по почте${a.enabled.length ? ', ' + a.enabled.join(', ') + '. Адреса возврата, которые нужно внести у провайдера:\n  ' + a.redirects.join('\n  ') : '. Discord выключен: не заданы DISCORD_CLIENT_ID/SECRET.'}`);
   if (a.dev) console.log('ВНИМАНИЕ: AUTH_DEV=1, вход под любым именем открыт. Только для проверок.');
   console.log(`Админка: http://localhost:${PORT}/#/admin  пароль: ${process.env.ADMIN_KEY ? '(из ADMIN_KEY)' : ADMIN_KEY}`);
 });

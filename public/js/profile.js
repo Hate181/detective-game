@@ -3,9 +3,7 @@
 (function () {
   const { esc, toast } = UI;
   const ROLE = { innocent: 'Невиновный', killer: 'Убийца', accomplice: 'Сообщник' };
-  const PROV = { discord: 'Discord', google: 'Google', dev: 'тестовый вход' };
-  const DISCORD = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 5.3A16.5 16.5 0 0 0 15.5 4l-.2.4a15 15 0 0 1 3.7 1.9 13.6 13.6 0 0 0-12.2-.1A15 15 0 0 1 10.5 4.4L10.3 4a16.5 16.5 0 0 0-4.1 1.3C3.6 9.2 2.9 13 3.2 16.7a16.6 16.6 0 0 0 5 2.5l1.1-1.7a10.7 10.7 0 0 1-1.7-.8l.4-.3a11.8 11.8 0 0 0 10 0l.4.3c-.5.3-1.1.6-1.7.8l1.1 1.7a16.5 16.5 0 0 0 5-2.5c.4-4.3-.7-8-2.9-11.4ZM9.5 14.5c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm5 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
-  const GOOGLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#ea4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8a6 6 0 0 1 0-12c1.9 0 3.1.8 3.8 1.5l2.6-2.5A9.5 9.5 0 0 0 12 2.5a9.5 9.5 0 1 0 0 19c5.5 0 9.1-3.8 9.1-9.3 0-.6-.1-1.1-.2-1.6H12Z"/></svg>';
+  const PROV = { discord: 'Discord', google: 'Google', email: 'почту', dev: 'тестовый вход' };
 
   const day = (t) => { try { return new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); } catch (e) { return ''; } };
   const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
@@ -14,15 +12,6 @@
   function avatarOf(name, url, cls) {
     return url ? `<img class="${cls}" src="${esc(url)}" alt="" referrerpolicy="no-referrer">`
       : `<span class="${cls}" style="background:${esc(App.hue(name))}">${esc(UI.initial(name))}</span>`;
-  }
-
-  function loginButtons() {
-    const pr = (Net.me && Net.me.providers) || {};
-    const live = Net.mode !== 'demo' && (pr.discord || pr.google);
-    const btns = live
-      ? `${pr.discord ? `<a class="btn" href="/auth/discord">${DISCORD} Войти через Discord</a>` : ''}${pr.google ? `<a class="btn" href="/auth/google">${GOOGLE} Войти через Google</a>` : ''}`
-      : `<button class="btn" type="button" aria-disabled="true" data-off>${DISCORD} Войти через Discord</button><button class="btn" type="button" aria-disabled="true" data-off>${GOOGLE} Войти через Google</button>`;
-    return `<div class="auth-btns">${btns}${pr.dev ? '<a class="btn" href="/auth/dev?name=Тест">Тестовый вход</a>' : ''}</div>`;
   }
 
   function guestHtml() {
@@ -38,7 +27,7 @@
           <li>Выпали из партии, и место ждёт вас на любом устройстве.</li>
           <li>Здесь копятся ваши партии, победы, медали и место в сезоне.</li>
         </ul>
-        ${loginButtons()}
+        ${App.loginButtons()}
       </section>`;
   }
 
@@ -79,6 +68,13 @@
         ${a.custom && a.providerName ? `<p class="hint"><button type="button" class="linkish" data-reset>Вернуть имя из ${esc(PROV[a.provider] || a.provider)}</button></p>` : ''}
       </section>
 
+      ${a.provider === 'email' ? `<section><h2>Пароль</h2>
+        <form class="pf-pass" id="pfPass" autocomplete="off">
+          <input class="input" id="pfOld" type="password" autocomplete="current-password" maxlength="128" placeholder="Старый пароль" aria-label="Старый пароль">
+          <input class="input" id="pfNew" type="password" autocomplete="new-password" maxlength="128" placeholder="Новый, от 8 знаков" aria-label="Новый пароль">
+          <button class="btn" type="submit">Сменить</button>
+        </form></section>` : ''}
+
       <section><h2>Выход</h2>
         <p>После выхода вы снова будете играть гостем.</p>
         <button class="btn btn-ghost" type="button" data-logout>Выйти из аккаунта</button>
@@ -92,7 +88,11 @@
       root = this.root = root.firstChild; this.data = null; this.sig = null;
       document.title = 'Личный кабинет · Detective Game';
       root.addEventListener('click', (e) => this.onClick(e));
-      root.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.id === 'pfForm') this.save({ name: root.querySelector('#pfName').value }); });
+      root.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (e.target.id === 'pfForm') this.save({ name: root.querySelector('#pfName').value });
+        else if (e.target.id === 'pfPass') this.changePass();
+      });
       this.load();
     },
     async load() {
@@ -123,8 +123,18 @@
       toast('Имя сохранено.');
       this.sig = null; this.render();
     },
+    async changePass() {
+      const old = this.root.querySelector('#pfOld'), nw = this.root.querySelector('#pfNew');
+      const r = await App.postJson('/auth/email/password', { old: old.value, password: nw.value });
+      if (!r.ok) {
+        toast(r.error || 'Не получилось.', 'err');
+        const el = r.field === 'old' ? old : nw; el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); el.focus();
+        return;
+      }
+      old.value = ''; nw.value = '';
+      toast('Пароль сменён. На других устройствах нужно будет войти заново.');
+    },
     async onClick(e) {
-      if (e.target.closest('[data-off]')) { toast(Net.mode === 'demo' ? 'В демо входа нет, играйте гостем.' : 'Вход через Discord и Google скоро заработает. Пока можно играть гостем.'); return; }
       if (e.target.closest('[data-reset]')) { this.save({ reset: true }); return; }
       if (e.target.closest('[data-logout]')) {
         const inRoom = !!App.state;
