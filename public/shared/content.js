@@ -155,6 +155,32 @@
     turn: ['Расскажу коротко: весь вечер на виду, спросите остальных.', 'Скрывать нечего, спрашивайте.', 'Вечер прошёл спокойно, ничего необычного в памяти нет.'],
   };
 
+  /* Приметы конкретного дела живут в том же справочнике меток, что и общие: ключ вида «lyra.greasepaint».
+     Общие приметы остаются запасом для дел из админки, у которых своих нет. */
+  function registerCase(caseData) {
+    if (!caseData || !Array.isArray(caseData.habits)) return;
+    caseData.habits.forEach((h) => {
+      if (!h || !h.key || Object.prototype.hasOwnProperty.call(TAGS, h.key) && !TAGS[h.key].own) return;
+      TAGS[h.key] = { label: h.label, habit: h.habit || h.label, clues: h.clues && h.clues.length ? h.clues : [`У преступника примета: ${String(h.label).toLowerCase()}.`], own: caseData.id };
+    });
+  }
+  /** Из каких примет раздаются особенности в этом деле. */
+  function habitPool(caseData) {
+    registerCase(caseData);
+    const own = ((caseData && caseData.habits) || []).map((h) => h.key).filter((k) => TAGS[k]);
+    return own.length >= 10 ? own : own.concat(HABIT_TAGS);
+  }
+  /** Тексты улики: у дела могут быть свои формулировки для общих меток профессий. */
+  function clueTexts(caseData, tag) {
+    const own = caseData && caseData.proClues && caseData.proClues[tag];
+    return Array.isArray(own) && own.length ? own : TAGS[tag].clues;
+  }
+  /** Списки дела (связи, мотивы, тайны) с добивкой из общих, чтобы хватило на десятерых. */
+  function caseList(caseData, key, fallback, need) {
+    const own = ((caseData && caseData[key]) || []).filter((x) => typeof x === 'string' && x);
+    return own.length >= need ? own : own.concat(fallback.filter((x) => !own.includes(x)));
+  }
+
   function trans(n, one, few, many) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
@@ -165,5 +191,6 @@
   return {
     TAGS, TAG_KEYS, HABIT_TAGS, TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS,
     RELATIONS, MOTIVES, SECRET_LOC, SECRET_PLAIN, GENERIC_PROFESSIONS, CARDS, SWAPS_IN_DECK, AWARDS, DURATIONS, PROMPTS, BOT_NAMES, BOT_LINES, trans,
+    registerCase, habitPool, clueTexts, caseList,
   };
 });

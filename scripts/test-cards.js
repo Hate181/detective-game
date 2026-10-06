@@ -135,7 +135,7 @@ for (const n of [6, 7, 8, 9, 10]) {
   check(has(game, acc, 'trail'), 'Обыск по связи с жертвой «Ложный след» не тратит');
 
   // Обыск по пункту, который совпал бы с уликой, показывает чистый результат
-  const trait = card.proTags.some((g) => clueTags.includes(g)) ? 'profession' : 'habit';
+  const trait = ['habit', 'profession'].find((t) => !game.players[acc].revealed[t] && (t === 'profession' ? card.proTags : card.habitTags).some((g) => clueTags.includes(g))) || 'habit';
   check((trait === 'profession' ? card.proTags : card.habitTags).some((g) => clueTags.includes(g)), 'у сообщника есть пункт, который выдал бы его');
   const r = E.act(game, cop, 'card', { type: 'warrant', target: acc, trait }, st.now += 10);
   const note = game.players[cop].notes[game.players[cop].notes.length - 1];

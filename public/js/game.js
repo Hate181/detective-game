@@ -34,6 +34,7 @@
         <header class="g-top" id="gTop"></header>
         <div class="g-main">
           <section class="g-stage">
+            <section class="case-file" id="gCase" aria-label="Обстоятельства дела"></section>
             <div class="queue" id="gQueue" aria-label="Игроки и очередь рассказов"></div>
             <div class="stage panel" id="gStage"></div>
             <div class="clues-row" id="gClues"></div>
@@ -93,7 +94,7 @@
       if (phaseChanged) this.onPhase(g);
       this.phaseKey = pk;
 
-      this.renderTop(st); this.renderQueue(); this.renderStage(phaseChanged || !this.stageDrawn); this.renderClues(); this.renderCard(); this.renderHost(st); this.renderOverlay(); this.renderDock(st);
+      this.renderTop(st); this.renderCase(); this.renderQueue(); this.renderStage(phaseChanged || !this.stageDrawn); this.renderClues(); this.renderCard(); this.renderHost(st); this.renderOverlay(); this.renderDock(st);
       this.stageDrawn = true;
       this.chat.update(g.feed, { gameKey: key, nameOf: (id) => (this.byId[id] ? this.byId[id].name : '?'), status: me.status === 'out' ? 'вы вне игры' : '' });
       this.renderNav();
@@ -143,7 +144,7 @@
       setHtml(this.root.querySelector('#gTop'), `
         <div class="g-title"><p class="eyebrow">${esc(eyebrow)}${g.paused ? ' · пауза' : ''}</p><h2>${title}</h2></div>
         <div class="pips" aria-label="Раунды">${pips}</div>
-        <div class="g-right">${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
+        <div class="g-right">${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.clock && g.clock.state !== 'run' ? 'Часы стоят: отсчёт запускает ведущий' : g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
     },
 
     tickClocks() {
@@ -152,16 +153,26 @@
       const t = this.root.querySelector('#gTimer');
       if (t) {
         const b = t.querySelector('b'), fg = t.querySelector('.fg');
+        const c = g.clock;
+        t.classList.toggle('stopped', !!c && c.state !== 'run');
         if (g.paused) { b.textContent = 'II'; fg.style.strokeDashoffset = 0; }
-        else if (g.phaseEndsAt) {
-          const rem = g.phaseEndsAt - now, total = Math.max(1, g.phaseEndsAt - g.phaseStartedAt);
+        else if (c) {
+          const rem = c.state === 'run' ? g.phaseEndsAt - now : c.left, total = Math.max(1, c.full);
           b.textContent = fmtClock(Math.max(0, rem));
           fg.style.strokeDashoffset = String(150.8 * (1 - Math.max(0, Math.min(1, rem / total))));
-          t.classList.toggle('low', rem < 10000 && rem >= 0 && !g.manual);
+          t.classList.toggle('low', c.state === 'run' && rem < 10000 && rem >= 0 && !g.manual);
           t.classList.toggle('over', rem < 0 && g.manual);
         } else { b.textContent = '·'; fg.style.strokeDashoffset = 0; }
       }
       this.root.querySelectorAll('[data-end]').forEach((el) => { el.textContent = fmtClock(Number(el.dataset.end) - now); });
+    },
+
+    /* ---------- Обстоятельства дела: всю партию в одном месте ---------- */
+    renderCase() {
+      const c = this.g.case;
+      setHtml(this.root.querySelector('#gCase'), `<div class="cf-head"><span class="eyebrow">Дело</span><b>${esc(c.title)}</b></div>
+        <div class="cf-facts"><span><em>Жертва</em>${esc(c.victim)}</span><span><em>Время смерти</em><span class="mono">${esc(c.time)}</span></span><span><em>Место</em>${esc(c.scene)}</span></div>
+        <p class="cf-text">${esc(c.teaser)}</p>`);
     },
 
     /* ---------- Очередь людей ---------- */
@@ -213,8 +224,7 @@
           alibi = `<div style="display:grid;gap:10px"><p><b>Выберите алиби.</b> Вы были в «${esc(g.case.scene)}», но скажете, что в другом месте. Если там кто-то был, вас могут поймать.</p>
             <div class="loc-grid">${me.killerInfo.locations.map((l) => `<button class="loc-btn" data-a="alibi" data-loc="${esc(l.loc)}">${esc(l.loc)}<small>${l.crowded ? 'там кто-то был: риск' : 'опровергнуть некому'}</small></button>`).join('')}</div></div>`;
         } else if (killer) alibi = `<p>Ваше алиби: <b>${esc(alibiTxt(me.card.alibi.claim))}</b>. На самом деле вы были в «${esc(g.case.scene)}».</p>`;
-        return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>${esc(g.case.title)}</h3><p>${esc(g.case.teaser)}</p></div>
-          <div class="facts-row"><div class="fact"><b>Жертва</b><span>${esc(g.case.victim)}</span></div><div class="fact"><b>Время смерти</b><span class="mono">${esc(g.case.time)}</span></div><div class="fact"><b>Место</b><span>${esc(g.case.scene)}</span></div></div>
+        return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>Прочитайте дело и свою карточку</h3><p>Обстоятельства дела всю партию висят наверху. Стройте рассказ так, чтобы он с ними сходился.</p></div>
           ${alibi}
           <div class="act-row"><button class="btn btn-primary" data-a="ready" ${me.ready ? 'disabled' : ''}>${me.ready ? 'Всё готово' : 'Карточка прочитана'}</button><span class="muted">Готовы: ${readyN} из ${g.players.length}</span></div>`;
       }
@@ -382,6 +392,17 @@
       if (setHtml(el, html)) el.open = this.cardOpen !== false;
     },
 
+    /* Часы ведущего: старт или пауза, заново, +30 секунд. */
+    clockButtons(g) {
+      const c = g.clock;
+      if (!c || g.overlay || g.phase === 'verdict') return '';
+      const run = c.state === 'run';
+      return `<span class="clock-ctl" role="group" aria-label="Таймер">
+        <button class="btn btn-sm ${run ? '' : 'btn-amber'}" data-a="hclock" data-v="${run ? 'pause' : 'start'}" title="${run ? 'Поставить таймер на паузу' : 'Запустить отсчёт'}" aria-label="${run ? 'Пауза' : 'Старт'}">${icon(run ? 'pause' : 'play')}<span>${run ? 'Пауза' : c.state === 'pause' ? 'Дальше' : 'Старт'}</span></button>
+        <button class="btn btn-sm" data-a="hclock" data-v="reset" title="Начать время фазы заново" aria-label="Сбросить время">${icon('restart')}</button>
+        <button class="btn btn-sm" data-a="hext" title="Добавить 30 секунд">+30 с</button></span>`;
+    },
+
     /* ---------- Панель ведущего ---------- */
     renderHost(st) {
       const g = this.g, me = this.me, host = this.root.querySelector('#gHost');
@@ -399,7 +420,7 @@
         if (g.phase === 'turns' && g.turn && g.turn.idx + 1 >= g.turn.total) next = 'К обсуждению';
         const modeLbl = g.manual ? 'Перейти на таймеры' : 'Вернуть ручное ведение';
         setHtml(host, `<div><div class="who"><b>Вы ведёте партию</b><span>${esc(status || sub)}${g.manual ? '' : ' · сейчас идёт по таймерам'}</span></div>
-          <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button><button class="btn btn-sm" data-a="hext" ${g.phaseEndsAt ? '' : 'disabled'} title="Добавить 30 секунд">+30 с</button><button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
+          <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button>${this.clockButtons(g)}<button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
         host.className = 'host-bar';
       } else {
         const txt = g.manual ? `Ведущий ${hostP ? hostP.name : ''} листает раунды` : 'Партия идёт по таймерам';
@@ -468,6 +489,7 @@
       if (a === 'card') return this.playCard(b.dataset.type);
       if (a === 'hnext') return this.act('host', { do: 'next' });
       if (a === 'hext') return this.act('host', { do: 'extend' });
+      if (a === 'hclock') return this.act('host', { do: 'clock', op: b.dataset.v });
       if (a === 'hmode') { const r = await Net.call('room:setting', { key: 'mode', value: g.manual ? 'timers' : 'host' }); if (!r.ok) fail(r); return; }
       if (a === 'leave') return Net.call('room:leave');
       if (a === 'quit') {

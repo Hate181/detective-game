@@ -75,7 +75,7 @@
         ready: false, alibiChosen: role !== 'killer', left: false,
       };
     });
-    game.phaseEndsAt = now + dur(game, 'brief');
+    startClock(game, now, dur(game, 'brief'));
     pushFeed(game, now, { kind: 'system', text: `Дело открыто: ${game.caseData.title}. Жертва: ${game.caseData.victim}. Время смерти ${game.caseData.time}.` });
     return game;
   }
@@ -93,6 +93,29 @@
     if (game.settings.mode !== 'host') return false;
     const h = game.players[game.hostId];
     return !!h && !h.auto;
+  }
+
+  /* Часы фазы. При ручном ведении фаза начинается с остановленных часов: отсчёт запускает ведущий,
+     он же ставит паузу и сбрасывает время. По таймерам часы идут сразу. Пока часы стоят, phaseEndsAt = 0. */
+  function startClock(game, now, ms) {
+    const run = !isManual(game);
+    game.clock = { state: run ? 'run' : 'idle', full: ms, left: ms };
+    game.phaseEndsAt = run ? now + ms : 0;
+  }
+  function clockLeft(game, now) {
+    const c = game.clock; if (!c) return 0;
+    return c.state === 'run' ? game.phaseEndsAt - now : c.left;
+  }
+  function clockRun(game, now) {
+    const c = game.clock; if (!c || c.state === 'run') return;
+    c.state = 'run';
+    game.phaseEndsAt = now + c.left;
+  }
+  function clockStop(game, now) {
+    const c = game.clock; if (!c || c.state !== 'run') return;
+    c.left = game.phaseEndsAt - now;
+    c.state = 'pause';
+    game.phaseEndsAt = 0;
   }
 
   function pushFeed(game, now, ev) {
@@ -152,9 +175,9 @@
   function setPhase(game, now, phase, durKey) {
     game.phase = phase;
     game.phaseStartedAt = now;
-    game.phaseEndsAt = now + dur(game, durKey);
+    startClock(game, now, dur(game, durKey));
     // Эффектные паузы идут сами, даже когда ведущий листает вручную.
-    game.autoAt = phase === PH.VERDICT ? game.phaseEndsAt : null;
+    game.autoAt = phase === PH.VERDICT ? now + dur(game, durKey) : null;
     game.overlay = null;
     game.order.forEach((id) => { game.players[id].ready = false; });
   }
@@ -187,7 +210,7 @@
     if (t.idx >= t.queue.length) { t.speakerId = null; return startTalk(game, now); }
     game.phase = PH.TURNS;
     game.phaseStartedAt = now;
-    game.phaseEndsAt = now + dur(game, 'turn');
+    startClock(game, now, dur(game, 'turn'));
     game.autoAt = null;
     game.overlay = null;
     t.speakerId = t.queue[t.idx];
@@ -427,7 +450,7 @@
       const ok = own.filter((x) => x.name !== t.card.profession && !(x.tags || []).some((g) => clueTags.has(g)));
       return ok.length ? game.rng.pick(ok).name : t.card.profession;
     }
-    const pool = Content.HABIT_TAGS.filter((g) => !clueTags.has(g));
+    const pool = Content.habitPool(game.caseData).filter((g) => !clueTags.has(g));
     return game.rng.sample(pool, Math.max(2, t.card.habitTags.length)).map((g) => Content.TAGS[g].habit).join(', ');
   }
 
@@ -581,9 +604,22 @@
     if (p.id !== game.hostId) bad('Это кнопки ведущего.');
     if (game.phase === PH.ENDED) bad('Дело уже закрыто.');
     if (pl.do === 'extend') {
-      if (game.overlay || !game.phaseEndsAt) bad('Сейчас время не продлить.');
-      game.phaseEndsAt += 30000;
+      if (game.overlay || !game.clock) bad('Сейчас время не продлить.');
+      if (game.clock.state === 'run') game.phaseEndsAt += 30000; else game.clock.left += 30000;
       return;
+    }
+    // Часы ведущего: запустить отсчёт, поставить на паузу, начать время фазы заново.
+    if (pl.do === 'clock') {
+      if (!game.clock || game.phase === PH.VERDICT) bad('Сейчас часы не нужны.');
+      if (pl.op === 'start') return clockRun(game, now);
+      if (pl.op === 'pause') return clockStop(game, now);
+      if (pl.op === 'reset') {
+        game.clock.left = game.clock.full;
+        if (game.clock.state === 'run') game.phaseEndsAt = now + game.clock.full;
+        else game.clock.state = 'idle';
+        return;
+      }
+      bad('Неизвестная кнопка.');
     }
     if (pl.do !== 'next') bad('Неизвестная кнопка.');
     if (game.overlay) { resolveOverlayTimeout(game, now); return; }
@@ -688,7 +724,7 @@
       const no = game.clues.indexOf(clue) + 1;
       clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
       clue.tag = tag;
-      clue.text = game.rng.pick(Content.TAGS[tag].clues);
+      clue.text = game.rng.pick(Content.clueTexts(game.caseData, tag));
       clue.fits = game.order.filter((id) => P(game, id).card.tags.includes(tag));
       clue.planted = true;
       game.plants.push({ by: p.id, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
@@ -793,6 +829,13 @@
     let changed = false;
     const manual = isManual(game);
     if (game.wasManual && !manual && game.phaseEndsAt && now > game.phaseEndsAt) game.phaseEndsAt = now + 15000;
+    // Партия идёт сама (таймеры или автопилот за ведущего): часы, которые никто не запустил, пускаем.
+    // Паузу живого ведущего в режиме таймеров уважаем, а за отошедшего ведущего часы идут.
+    const host = game.players[game.hostId];
+    if (!manual && game.clock && game.clock.state !== 'run' && (game.clock.state === 'idle' || !host || host.auto)) {
+      if (game.clock.left < 15000) game.clock.left = 15000;
+      clockRun(game, now);
+    }
     game.wasManual = manual;
     if (E.botStep) changed = E.botStep(game, now) || changed;
     for (let guard = 0; guard < 6; guard++) {
@@ -860,7 +903,8 @@
       const qi = game.turn ? game.turn.queue.indexOf(id) : -1;
       return {
         id, name: p.name, bot: p.bot, status: p.status, revealed: rev,
-        tags: chips(ended ? p.card.tags : shownTags(p)),
+        // В обычном режиме сервер не отдаёт, какие открытые приметы совпадают с уликами: это игроки замечают сами.
+        tags: chips(ended ? p.card.tags : game.settings.hints === 'light' ? shownTags(p) : []),
         role: knowsRole ? p.role : null,
         ready: p.ready, left: p.left, auto: p.auto && !p.bot, host: id === game.hostId,
         speaking: !!turn && turn.speakerId === id,
@@ -871,7 +915,8 @@
     const ov = game.overlay;
     const v = {
       now: Date.now(), phase: game.phase, phaseStartedAt: game.phaseStartedAt, phaseEndsAt: game.phaseEndsAt, paused: game.paused,
-      manual: isManual(game), mode: game.settings.mode, hostId: game.hostId,
+      clock: game.clock && game.phase !== PH.ENDED ? { state: game.clock.state, full: game.clock.full, left: Math.round(clockLeft(game, Date.now())) } : null,
+      manual: isManual(game), mode: game.settings.mode, hints: game.settings.hints === 'light' ? 'light' : 'normal', hostId: game.hostId,
       round: game.round, rounds: ROUNDS, finale: isFinale(game), speed: game.settings.speed,
       case: { title: game.caseData.title, victim: game.caseData.victim, time: game.caseData.time, teaser: game.caseData.teaser, locations: game.caseData.locations, scene: game.scene, icon: game.caseData.icon },
       accomplice: !!game.accompliceId, gang: !!game.gang,

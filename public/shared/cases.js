@@ -1,8 +1,8 @@
 /* Архив дел. Каждое дело задаёт сцену, жертву, места для алиби и профессии с тегами для улик. */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'));
-  else root.DetectiveCases = factory(root.DetectiveContent);
-})(typeof self !== 'undefined' ? self : this, function (Content) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'), require('./case-content.js'));
+  else root.DetectiveCases = factory(root.DetectiveContent, root.DetectiveCaseContent);
+})(typeof self !== 'undefined' ? self : this, function (Content, Extra) {
   const P = (name, ...tags) => ({ name, tags });
 
   const CASES = [
@@ -223,6 +223,19 @@
     { id: 'main', title: 'Основной', desc: 'Убийца и сообщник, разные места и эпохи.' },
   ];
   CASES.forEach((c) => { c.pack = 'main'; });
+  const PRO_SKILLS = ['quiet', 'strong', 'tools', 'french'];
+  /* Своё наполнение каждого дела: приметы для особенностей и улик, формулировки улик для профессий, связи, мотивы, тайны. */
+  CASES.forEach((c) => {
+    const d = Extra && Extra[c.id];
+    if (!d) return;
+    // Приметы теперь у каждого дела свои, поэтому профессии несут только умения и доступы, а не общие приметы вроде «курит» или «в очках».
+    c.professions.forEach((p) => { p.tags = p.tags.filter((t) => !Content.TAGS[t].habit || PRO_SKILLS.includes(t)); });
+    c.habits = d.habits.map((h) => ({ key: `${c.id}.${h.key}`, label: h.label, habit: h.habit, clues: h.clues.slice() }));
+    c.proClues = JSON.parse(JSON.stringify(d.proClues || {}));
+    c.relations = d.relations.slice(); c.motives = d.motives.slice(); c.secrets = d.secrets.slice();
+    Content.registerCase(c);
+  });
+  const DETAIL_KEYS = ['habits', 'proClues', 'relations', 'motives', 'secrets'];
   /** Дела первых версий вышли из архива вместе с переходом на двух преступников. */
   const RETIRED_IDS = ['mansion', 'train', 'corporate', 'yacht', 'museum', 'lighthouse', 'ski', 'casino', 'studio', 'clinic', 'library',
     'circus', 'airship', 'dig', 'radio', 'winery', 'bank', 'sanatorium', 'riverboat', 'chess'];
@@ -273,6 +286,18 @@
       pack: PACKS.some((p) => p.id === input.pack) ? input.pack : 'main',
       enabled: input.enabled !== false,
     };
+    // Наполнение дела переносится как есть, если пришло целиком (импорт или копия встроенного дела).
+    const strs = (v, max, cap) => (Array.isArray(v) ? v.map((x) => str(x, max)).filter(Boolean).slice(0, cap) : undefined);
+    if (Array.isArray(input.habits)) {
+      c.habits = input.habits.filter((h) => h && typeof h === 'object' && h.key && h.label).slice(0, 40)
+        .map((h) => ({ key: str(h.key, 60).replace(/[^a-z0-9.-]/gi, ''), label: str(h.label, 40), habit: str(h.habit || h.label, 60), clues: strs(h.clues, 300, 4) || [] }))
+        .filter((h) => h.key && !Object.prototype.hasOwnProperty.call(Content.TAGS, h.key) || (Content.TAGS[h.key] && Content.TAGS[h.key].own));
+    }
+    if (input.proClues && typeof input.proClues === 'object') {
+      c.proClues = {};
+      Object.keys(input.proClues).filter((k) => Object.prototype.hasOwnProperty.call(Content.TAGS, k)).forEach((k) => { const v = strs(input.proClues[k], 300, 4); if (v && v.length) c.proClues[k] = v; });
+    }
+    ['relations', 'motives', 'secrets'].forEach((k) => { const v = strs(input[k], 120, 40); if (v) c[k] = v; });
     if (!c.title) throw new Error('У дела должно быть название.');
     if (!c.victim) throw new Error('Укажите жертву.');
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(c.time)) throw new Error('Время смерти пишется как ЧЧ:ММ, например 23:40.');
@@ -290,7 +315,7 @@
   }
 
   /** Версия текстов встроенных дел: при её росте тексты уже сохранённых встроенных дел обновляются один раз. */
-  const TEXT_REV = 3;
+  const TEXT_REV = 4;
 
   /** Новые встроенные дела добавляются в уже сохранённый архив один раз; удалённые админом не возвращаются.
       При смене ревизии паков дела первых версий убираются из сохранённого архива, а у остальных проставляется пак. */
@@ -310,6 +335,7 @@
         if (saved) {
           ['title', 'victim', 'teaser'].forEach((k) => { saved[k] = c[k]; });
           saved.professions = JSON.parse(JSON.stringify(c.professions));
+          DETAIL_KEYS.forEach((k) => { if (c[k] !== undefined) saved[k] = JSON.parse(JSON.stringify(c[k])); });
           refreshed++;
         }
       }

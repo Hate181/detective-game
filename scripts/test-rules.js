@@ -84,5 +84,29 @@ function start(rules) {
   check(!game.suspicions.some((x) => x.by === x.target), 'голос «без выбора» не считается подозрением');
 }
 
+// Часы ведущего: при ручном ведении фаза ждёт старта, пауза замораживает остаток, сброс возвращает полное время.
+{
+  const players = Array.from({ length: 6 }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
+  const game = E.createGame({ caseData: Cases.CASES[0], players, seed: 11, now: 1000, hostId: 'p0', settings: { mode: 'host' } });
+  let now = 1000;
+  const v = () => E.view(game, 'p0').clock;
+  check(v().state === 'idle' && game.phaseEndsAt === 0, 'при ручном ведении часы фазы стоят, пока ведущий их не запустит');
+  check(!E.act(game, 'p1', 'host', { do: 'clock', op: 'start' }, now).ok, 'запустить часы может только ведущий');
+  E.act(game, 'p0', 'host', { do: 'clock', op: 'start' }, now);
+  check(v().state === 'run' && game.phaseEndsAt === now + game.clock.full, 'ведущий запустил отсчёт');
+  now += 5000; E.act(game, 'p0', 'host', { do: 'clock', op: 'pause' }, now);
+  check(game.clock.state === 'pause' && game.clock.left === game.clock.full - 5000, 'пауза запоминает остаток');
+  now += 60000; E.tick(game, now);
+  check(game.clock.left === game.clock.full - 5000, 'на паузе время не уходит');
+  E.act(game, 'p0', 'host', { do: 'clock', op: 'reset' }, now);
+  check(game.clock.state === 'idle' && game.clock.left === game.clock.full, 'сброс возвращает полное время');
+  E.act(game, 'p0', 'host', { do: 'extend' }, now);
+  check(game.clock.left === game.clock.full + 30000, '+30 секунд работает и на стоящих часах');
+  E.act(game, 'p0', 'host', { do: 'next' }, now);
+  check(game.phase === PH.CLUE && game.clock.state === 'idle', 'новая фаза снова ждёт старта');
+  game.players.p0.auto = true; E.tick(game, now += 400);
+  check(game.clock.state === 'run', 'за ведущего на автопилоте часы идут сами');
+}
+
 console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» и голоса без выбора в порядке');
 process.exit(fails ? 1 : 0);

@@ -150,7 +150,7 @@
       if (ph === PH.TALK) {
         if (p.status !== 'active') return false;
         const elapsed = now - game.phaseStartedAt;
-        const total = game.phaseEndsAt ? game.phaseEndsAt - game.phaseStartedAt : 1;
+        const total = game.clock ? game.clock.full : 1;
         const r = game.rng.next();
         if (r < 0.35 && elapsed > total * 0.1 && useCard(game, p, now)) return true;
         if (elapsed > total * 0.4 && !p.ready && game.rng.chance(0.5)) return act(game, p.id, 'ready', {}, now).ok;

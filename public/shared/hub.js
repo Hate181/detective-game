@@ -132,7 +132,7 @@
       this._guardOther(token, null, leave);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
+        settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
       const host = this._addPlayer(room, token, name);
@@ -241,6 +241,11 @@
         if (!['host', 'timers'].includes(value)) fail('bad_setting', 'Недопустимая настройка.');
         room.settings.mode = value;
         if (room.game) room.game.settings.mode = value;
+      } else if (key === 'hints') {
+        // Обычный режим: связь игроков с уликами в интерфейсе не подсвечивается. Лайт: подсвечивается.
+        if (room.status !== 'lobby') fail('in_progress', 'Режим меняют до начала партии.');
+        if (!['normal', 'light'].includes(value)) fail('bad_setting', 'Недопустимая настройка.');
+        room.settings.hints = value;
       } else if (key === 'turn' || key === 'discuss') {
         if (room.status !== 'lobby') fail('in_progress', 'Время меняют до начала партии.');
         if (!(key === 'turn' ? TURN_OPTIONS : TALK_OPTIONS).includes(Number(value))) fail('bad_setting', 'Недопустимая настройка.');
@@ -320,7 +325,7 @@
       room.game = Engine.createGame({
         caseData: c, seed, now: this.now(),
         players: members.map((p) => ({ id: p.id, name: p.name, bot: p.isBot })),
-        settings: { discuss: room.settings.discuss, speed: room.settings.speed, mode: room.settings.mode, durations: { turn: room.settings.turn } },
+        settings: { discuss: room.settings.discuss, speed: room.settings.speed, mode: room.settings.mode, hints: room.settings.hints === 'light' ? 'light' : 'normal', durations: { turn: room.settings.turn } },
         hostId: room.hostId, history: { killerCounts: room.killerCounts }, forceKiller, forceAccomplice,
       });
       room.gameMeta = { caseData: c, seed };
@@ -407,6 +412,7 @@
       const room = this.roomOf(token); if (!room) return null;
       const p = room.players.find((x) => x.token === token && !x.left);
       if (!p) return null;
+      if (p.connected === connected) return room;
       p.connected = connected;
       if (!connected) p.offlineSince = this.now();
       else p.offlineSince = p.away ? (p.offlineSince || this.now()) : 0;
@@ -483,6 +489,8 @@
       try { c = Cases.validateCase(data || {}, list.map((x) => x.id)); } catch (e) { fail('bad_case', e.message); }
       const i = list.findIndex((x) => x.id === c.id);
       if (i < 0 && list.length >= 300) fail('bad_case', 'В архиве уже 300 дел. Удалите лишние.');
+      // Приметы, связи, мотивы и тайны в админке не редактируются: при правке дела они сохраняются как были.
+      if (i >= 0) ['habits', 'proClues', 'relations', 'motives', 'secrets'].forEach((k) => { if (c[k] === undefined && list[i][k] !== undefined) c[k] = list[i][k]; });
       if (i >= 0) list[i] = c; else list.push(c);
       this.store.saveCases();
       this._sanitizeChoices();
@@ -516,12 +524,12 @@
     }
     ev_admin_rooms(token) { this._admin(token); return { rooms: this.adminRooms() }; }
 
-    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode }) {
+    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode, hints }) {
       this._admin(token);
       this._leave(token);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 40, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', discord: '' }, players: [], game: null, test: true,
+        settings: { discuss: 90, turn: 40, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', discord: '' }, players: [], game: null, test: true,
         testRole: ['killer', 'innocent', 'accomplice', 'random'].includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);

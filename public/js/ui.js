@@ -34,6 +34,9 @@
     chess: svg(`<path d="M9 27h14M10 27v-3h12v3M11 24l1-10h8l1 10M10 14V8h3v3h2V8h2v3h2V8h3v6z" ${S} stroke-linejoin="round" stroke-linecap="round"/>`),
     generic: svg(`<circle cx="14" cy="14" r="8" ${S}/><path d="M20 20l7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>`),
     discord: svg(`<path d="M7 9c3-2 6-2.6 9-2.6S22 7 25 9c2 3.5 3 7 3 11-2.5 2-5 3-8 3l-1.3-2c1.1-.3 2.1-.8 3-1.5-2.4 1.2-5 1.2-7.4 0-.9.7-1.9 1.2-3 1.5L10 23c-3 0-5.5-1-8-3 0-4 1-7.500 3-11z" ${S} stroke-linejoin="round" transform="translate(1 0)"/><circle cx="12.500" cy="16" r="1.600" fill="currentColor"/><circle cx="20.500" cy="16" r="1.600" fill="currentColor"/>`),
+    play: svg(`<path d="M11 7v18l15-9z" fill="currentColor"/>`),
+    pause: svg(`<rect x="9" y="7" width="5" height="18" rx="1.5" fill="currentColor"/><rect x="18" y="7" width="5" height="18" rx="1.5" fill="currentColor"/>`),
+    restart: svg(`<path d="M8 16a8 8 0 1 0 2.5-5.8" ${S} stroke-linecap="round"/><path d="M8 6v5h5" ${S} stroke-linecap="round" stroke-linejoin="round"/>`),
     mic: svg(`<rect x="12" y="4" width="8" height="14" rx="4" ${S}/><path d="M8 15a8 8 0 0 0 16 0M16 23v5M11 28h10" ${S} stroke-linecap="round"/>`),
     warrant: svg(`<path d="M8 3h12l5 5v21H8z" ${S} stroke-linejoin="round"/><path d="M20 3v5h5M12 14h9M12 18h9M12 22h5" ${S} stroke-linecap="round"/>`),
   };

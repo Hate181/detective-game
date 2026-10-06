@@ -5,15 +5,19 @@
    3. Все четыре улики вместе подходят ровно одному игроку: убийце. Дело решаемо.
    Для партии «банда» (убийца и сообщник) улики делятся между двоими, чтобы ни один преступник не был «открытой книгой»:
    1. Убийце подходят три улики из четырёх, сообщнику тоже три, а вместе они закрывают все четыре.
-   2. Каждой улике подходят 2–3 игрока: хотя бы один преступник и хотя бы один невиновный.
+   2. Каждой улике подходят 2–3 игрока (за столом от восьми до 4): хотя бы один преступник и хотя бы один невиновный.
    3. Есть «двойники»: невиновные, которым тоже подходят три улики (один за столом до 7, двое от 8). Поэтому совпадения сами
       по себе ничего не доказывают, а решают алиби, свидетели и слова. Всем четырём уликам не подходит никто.
-   4. Особенностей у всех 2–3: по их числу преступника не вычислить. */
+   4. Особенностей у всех ровно две, приметы берутся из набора самого дела: по их числу преступника не вычислить. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'));
   else root.DetectiveGenerator = factory(root.DetectiveContent);
 })(typeof self !== 'undefined' ? self : this, function (Content) {
   const CLUE_COUNT = 4;
+  const HABITS = 2; // особенностей у каждого игрока в партии с двумя преступниками
+  // Сколько игроков может подходить под одну улику: за большим столом больше, иначе двоим двойникам не хватит места.
+  const maxHolders = (n) => (n >= 8 ? 4 : 3);
+  const NOISE = 0.6;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const uniq = (a) => Array.from(new Set(a));
 
@@ -28,14 +32,14 @@
   }
 
   /** Раздаёт теги и подбирает четыре улики. Возвращает null, если попытка не удалась. */
-  function tryTags(ids, killerId, accompliceId, profs, rng) {
+  function tryTags(ids, killerId, accompliceId, profs, rng, pool) {
     const n = ids.length;
     const target = clamp(Math.round(34 / n), 3, 6);
     const pro = {}, hab = {};
     ids.forEach((id, i) => {
       pro[id] = profs[i].tags.slice();
       const want = clamp(target - pro[id].length, 1, 3);
-      hab[id] = rng.sample(Content.HABIT_TAGS.filter((t) => !pro[id].includes(t)), want);
+      hab[id] = rng.sample(pool.filter((t) => !pro[id].includes(t)), want);
     });
     const tagsOf = (id) => uniq(pro[id].concat(hab[id]));
     const holders = (t) => ids.filter((id) => tagsOf(id).includes(t));
@@ -44,14 +48,14 @@
 
     // Сначала теги, которыми убийца уже обладает, потом те, что можно дать привычкой.
     const own = rng.shuffle(tagsOf(killerId));
-    const fresh = rng.shuffle(Content.HABIT_TAGS.filter((t) => !own.includes(t)));
+    const fresh = rng.shuffle(pool.filter((t) => !own.includes(t)));
     const order = own.concat(fresh);
 
     // Подгоняет число носителей тега до 2–3, не трогая профессии.
     const fix = (t) => {
       for (const c of crim) {
         if (!holders(t).includes(c)) {
-          if (!Content.TAGS[t].habit) return false;
+          if (!pool.includes(t)) return false;
           hab[c].push(t);
         }
       }
@@ -64,7 +68,7 @@
         H = holders(t);
       }
       while (H.length < crim.length + 1) {
-        if (!Content.TAGS[t].habit) return false;
+        if (!pool.includes(t)) return false;
         const free = others.filter((id) => !tagsOf(id).includes(t));
         if (!free.length) return false;
         hab[rng.pick(free)].push(t);
@@ -95,7 +99,7 @@
     // У каждого должна остаться хотя бы одна особенность.
     for (const id of ids) {
       if (!hab[id].length) {
-        const free = Content.HABIT_TAGS.filter((t) => !chosen.includes(t) && !tagsOf(id).includes(t));
+        const free = pool.filter((t) => !chosen.includes(t) && !tagsOf(id).includes(t));
         if (!free.length) return null;
         hab[id].push(rng.pick(free));
       }
@@ -104,8 +108,9 @@
     return verifyTags(ids, crim, chosen, tagsOf) ? res : null;
   }
 
-  /** Банда: раздаёт теги так, чтобы улики делились между убийцей и сообщником, а у невиновных были двойники. */
-  function tryGang(ids, killerId, accId, profs, rng) {
+  /** Банда: раздаёт теги так, чтобы улики делились между убийцей и сообщником, а у невиновных были двойники.
+      У каждого ровно две особенности. Поэтому третья улика у преступника и у двойника всегда приходит от профессии. */
+  function tryGang(ids, killerId, accId, profs, rng, pool) {
     const n = ids.length;
     const crim = [killerId, accId];
     const inn = ids.filter((id) => !crim.includes(id));
@@ -113,58 +118,79 @@
     ids.forEach((id, i) => { pro[id] = profs[i].tags.slice(); hab[id] = []; });
     const tagsOf = (id) => uniq(pro[id].concat(hab[id]));
     const holders = (t) => ids.filter((id) => tagsOf(id).includes(t));
+    const isHab = (t) => pool.includes(t);
+    const room = (id) => HABITS - hab[id].length;
+    const cap = maxHolders(n);
 
-    // 1. Четыре улики: метки, которые можно дать привычкой и которые профессия даёт не больше чем одному игроку.
-    //    Сначала те, что уже есть у преступников по профессии: так улика естественнее.
-    const proCount = (t) => ids.filter((id) => pro[id].includes(t)).length;
-    const cand = rng.shuffle(Content.HABIT_TAGS.filter((t) => proCount(t) <= 1));
-    const pref = cand.filter((t) => crim.some((c) => pro[c].includes(t)));
-    const chosen = uniq(pref.slice(0, 2).concat(cand)).slice(0, CLUE_COUNT);
+    // 1. Улика от профессии для каждого преступника: метка, которую профессия даёт не больше чем троим.
+    const proOk = (c) => pro[c].filter((t) => holders(t).length <= cap);
+    const pk = proOk(killerId), pa = proOk(accId);
+    if (!pk.length || !pa.length) return null;
+    const shared = pk.filter((t) => pa.includes(t));
+    const proChosen = shared.length && rng.chance(0.4) ? [rng.pick(shared)] : uniq([rng.pick(pk), rng.pick(pa)]);
+    // 2. Остальные улики из примет дела.
+    const chosen = proChosen.concat(rng.sample(pool.filter((t) => !ids.some((id) => pro[id].includes(t))), CLUE_COUNT - proChosen.length));
     if (chosen.length < CLUE_COUNT) return null;
+    const m = (id) => chosen.filter((t) => tagsOf(id).includes(t)).length;
+    if (crim.some((c) => m(c) > 3) || ids.some((id) => m(id) >= CLUE_COUNT)) return null;
 
-    // 2. Кому из преступников какая улика: по три каждому, вместе все четыре (две общие, по одной своей).
-    const K0 = chosen.filter((t) => pro[killerId].includes(t)), A0 = chosen.filter((t) => pro[accId].includes(t));
-    if (K0.length > 3 || A0.length > 3) return null;
-    let K = null, A = null;
-    for (let i = 0; i < 20 && !K; i++) {
-      const k = K0.concat(rng.shuffle(chosen.filter((t) => !K0.includes(t)))).slice(0, 3);
-      const a = uniq(A0.concat(chosen.filter((t) => !k.includes(t))));
-      for (const t of rng.shuffle(chosen.filter((x) => !a.includes(x)))) if (a.length < 2 || a.length < 3) a.push(t);
-      if (a.length === 3 && k.length === 3) { K = k; A = a; }
+    // 3. Кому из преступников какие улики: по три каждому, вместе все четыре. Недостающее даём приметами.
+    const options = [];
+    for (const xk of chosen) for (const xa of chosen) {
+      if (xk === xa) continue;
+      const K = chosen.filter((t) => t !== xk), A = chosen.filter((t) => t !== xa);
+      if (pro[killerId].includes(xk) || pro[accId].includes(xa)) continue;
+      const needK = K.filter((t) => !pro[killerId].includes(t)), needA = A.filter((t) => !pro[accId].includes(t));
+      if (needK.length > HABITS || needA.length > HABITS || !needK.every(isHab) || !needA.every(isHab)) continue;
+      options.push({ needK, needA });
     }
-    if (!K) return null;
-    K.forEach((t) => { if (!pro[killerId].includes(t)) hab[killerId].push(t); });
-    A.forEach((t) => { if (!pro[accId].includes(t)) hab[accId].push(t); });
-    if (chosen.some((t) => holders(t).length > 3)) return null;
+    if (!options.length) return null;
+    const pickO = rng.pick(options);
+    hab[killerId].push(...pickO.needK); hab[accId].push(...pickO.needA);
+    if (chosen.some((t) => holders(t).length > cap)) return null;
 
-    // 3. Двойники: невиновные, которым тоже подходят три улики. Тогда «три совпадения» ещё не приговор.
-    const matches = (id) => chosen.filter((t) => tagsOf(id).includes(t)).length;
+    // 4. Двойники: невиновные, которым тоже подходят три улики. Тогда «три совпадения» ещё не приговор.
     const decoyN = n >= 8 ? 2 : 1;
-    const decoys = inn.slice().sort((a, b) => matches(b) - matches(a) || rng.next() - 0.5).slice(0, decoyN);
+    const canDecoy = (id) => {
+      const missing = chosen.filter((t) => !tagsOf(id).includes(t));
+      const need = 3 - m(id);
+      return need <= 0 || (need <= room(id) && missing.filter((t) => isHab(t) && holders(t).length < cap).length >= need);
+    };
+    const decoys = rng.shuffle(inn.filter(canDecoy)).sort((a, b) => m(b) - m(a)).slice(0, decoyN);
+    if (decoys.length < decoyN) return null;
     for (const d of decoys) {
-      const want = 3;
       for (const t of rng.shuffle(chosen.slice())) {
-        if (matches(d) >= want) break;
-        if (!tagsOf(d).includes(t) && holders(t).length < 3) hab[d].push(t);
+        if (m(d) >= 3) break;
+        if (!tagsOf(d).includes(t) && isHab(t) && holders(t).length < cap && room(d) > 0) hab[d].push(t);
       }
-      if (matches(d) < want) return null;
+      if (m(d) !== 3) return null;
     }
-    // 4. У каждой улики должен быть хотя бы один невиновный.
+    // 5. У каждой улики должен быть хотя бы один невиновный.
     for (const t of chosen) {
       if (holders(t).some((id) => inn.includes(id))) continue;
-      if (holders(t).length >= 3) return null;
-      const free = inn.filter((id) => !decoys.includes(id) && matches(id) <= 1 && !tagsOf(id).includes(t));
+      if (holders(t).length >= cap || !isHab(t)) return null;
+      const free = inn.filter((id) => !decoys.includes(id) && m(id) <= 1 && room(id) > 0 && !tagsOf(id).includes(t));
       if (!free.length) return null;
       hab[rng.pick(free)].push(t);
     }
-    // 5. Особенностей у всех 2–3: добиваем безобидными метками, которых нет среди улик.
-    for (const id of ids) {
-      if (hab[id].length > 3) return null;
-      // Преступникам улики часто сами дают третью особенность, поэтому невиновным третья выпадает чаще: по числу не отличить.
-      const want = Math.max(hab[id].length, crim.includes(id) ? 2 : rng.chance(0.62) ? 3 : 2);
-      const free = rng.shuffle(Content.HABIT_TAGS.filter((t) => !chosen.includes(t) && !tagsOf(id).includes(t)));
-      while (hab[id].length < want && free.length) hab[id].push(free.shift());
-      if (hab[id].length < 2) return null;
+    // 6. Шум: часть остальных невиновных тоже несёт одну примету из улик, чтобы совпадение в особенности само по себе ничего не доказывало.
+    for (const id of rng.shuffle(inn.filter((x) => !decoys.includes(x)))) {
+      if (room(id) < 1 || m(id) >= 2 || !rng.chance(NOISE)) continue;
+      const opts = chosen.filter((t) => isHab(t) && !tagsOf(id).includes(t) && holders(t).length < cap);
+      if (opts.length) hab[id].push(rng.pick(opts));
+    }
+    // 7. Ровно две особенности у всех: добиваем приметами дела, которых нет среди улик, редкие вперёд, чтобы за столом было разнообразно.
+    const used = {};
+    ids.forEach((id) => hab[id].forEach((t) => { used[t] = (used[t] || 0) + 1; }));
+    for (const id of rng.shuffle(ids.slice())) {
+      while (hab[id].length < HABITS) {
+        const free = pool.filter((t) => !chosen.includes(t) && !tagsOf(id).includes(t));
+        if (!free.length) return null;
+        const least = Math.min(...free.map((t) => used[t] || 0));
+        const t = rng.pick(free.filter((x) => (used[x] || 0) === least));
+        hab[id].push(t); used[t] = (used[t] || 0) + 1;
+      }
+      if (hab[id].length !== HABITS) return null;
     }
     const res = { pro, hab, tagsOf, chosen };
     return verifyGang(ids, killerId, accId, chosen, tagsOf, hab) ? res : null;
@@ -181,7 +207,7 @@
     const m = (id) => chosen.filter((t) => tagsOf(id).includes(t)).length;
     chosen.forEach((t) => {
       const H = ids.filter((id) => tagsOf(id).includes(t));
-      if (H.length < 2 || H.length > 3) errors.push(`Улика «${t}» подходит ${H.length} игрокам`);
+      if (H.length < 2 || H.length > maxHolders(ids.length)) errors.push(`Улика «${t}» подходит ${H.length} игрокам`);
       if (!H.some((id) => crim.includes(id))) errors.push(`Улика «${t}» не указывает ни на одного преступника`);
       if (H.every((id) => crim.includes(id))) errors.push(`Улика «${t}» без невиновного`);
     });
@@ -190,7 +216,7 @@
     const inn = ids.filter((id) => !crim.includes(id));
     if (inn.some((id) => m(id) >= CLUE_COUNT)) errors.push('Невиновному подходят все улики');
     if (!inn.some((id) => m(id) >= 3)) errors.push('Нет двойника среди невиновных');
-    ids.forEach((id) => { const h = habCount(id); if (h < 1 || h > 3) errors.push(`Особенностей ${h}`); });
+    ids.forEach((id) => { const h = habCount(id); if (h !== HABITS) errors.push(`Особенностей ${h}, а должно ${HABITS}`); });
     return errors;
   }
 
@@ -211,16 +237,17 @@
     const scene = caseData.scene && locs.includes(caseData.scene) ? caseData.scene : locs[0];
     const nonScene = locs.filter((l) => l !== scene);
 
+    const habits = Content.habitPool(caseData);
     let t = null, profs = null;
-    for (let attempt = 0; attempt < 600 && !t; attempt++) {
+    for (let attempt = 0; attempt < 2000 && !t; attempt++) {
       profs = rng.sample(pool, n);
-      t = crimId ? tryGang(ids, killerId, crimId, profs, rng) : tryTags(ids, killerId, null, profs, rng);
+      t = crimId ? tryGang(ids, killerId, crimId, profs, rng, habits) : tryTags(ids, killerId, null, profs, rng, habits);
     }
     if (!t) throw new Error('Не удалось собрать дело: слишком мало разных профессий.');
 
     // Улики
     const clues = rng.shuffle(t.chosen).map((tag, i) => ({
-      id: `c${i + 1}`, tag, text: rng.pick(Content.TAGS[tag].clues), planted: false,
+      id: `c${i + 1}`, tag, text: rng.pick(Content.clueTexts(caseData, tag)), planted: false,
       fits: ids.filter((id) => t.tagsOf(id).includes(tag)),
     }));
 
@@ -229,6 +256,8 @@
     const shuffled = rng.shuffle(others);
     const pairCount = n >= 8 ? 2 : n >= 6 ? 1 : 0;
     const real = {}, claim = {}, secret = {};
+    const secretDeck = rng.shuffle(Content.caseList(caseData, 'secrets', Content.SECRET_PLAIN, n));
+    const nextSecret = () => secretDeck.length ? secretDeck.shift() : rng.pick(Content.SECRET_PLAIN);
     const otherLoc = (L) => rng.pick(nonScene.filter((x) => x !== L));
     let k = 0;
     for (let i = 0; i < pairCount; i++) {
@@ -249,17 +278,17 @@
       } else {
         const L = rng.pick(nonScene);
         real[id] = L; claim[id] = L;
-        secret[id] = { kind: 'plain', text: rng.pick(Content.SECRET_PLAIN) };
+        secret[id] = { kind: 'plain', text: nextSecret() };
       }
     }
     real[killerId] = scene; claim[killerId] = null;
-    secret[killerId] = { kind: 'plain', text: rng.pick(Content.SECRET_PLAIN) };
+    secret[killerId] = { kind: 'plain', text: nextSecret() };
 
     const murder = toMin(caseData.time);
     const window = () => ({ from: fmt(murder - rng.range(15, 40)), to: fmt(murder + rng.range(10, 30)) });
 
-    const relations = rng.shuffle(Content.RELATIONS);
-    const motives = rng.shuffle(Content.MOTIVES);
+    const relations = rng.shuffle(Content.caseList(caseData, 'relations', Content.RELATIONS, n));
+    const motives = rng.shuffle(Content.caseList(caseData, 'motives', Content.MOTIVES, n));
 
     // Цели
     const nonKiller = (excl) => ids.filter((id) => id !== killerId && id !== excl);

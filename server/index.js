@@ -100,6 +100,8 @@ function pushRoom(code, extra = {}) {
   }
 }
 
+const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_MS || 8000);
+
 io.use(security.connectionGuard);
 
 io.on('connection', (socket) => {
@@ -146,7 +148,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const set = socketsOf.get(token);
     if (set) { set.delete(socket); if (!set.size) socketsOf.delete(token); }
-    if (!socketsOf.has(token)) hub.setConnected(token, false);
+    // Короткий обрыв (телефон свернули, сеть мигнула) не показываем: «нет связи» только если игрок не вернулся за несколько секунд.
+    if (!socketsOf.has(token)) setTimeout(() => { if (!socketsOf.has(token)) hub.setConnected(token, false); }, OFFLINE_GRACE_MS);
   });
 });
 

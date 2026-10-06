@@ -44,9 +44,11 @@ for (const n of [6, 7, 8, 10]) {
   check(m(game.killerId) === 3 && m(game.accompliceId) === 3, `${n} игроков: каждому преступнику подходят три улики из четырёх, а не все`);
   check(tags.every((t) => crim.some((c) => game.players[c].card.tags.includes(t))), `${n} игроков: вместе преступники закрывают все четыре улики`);
   check(inno.filter((id) => m(id) === 3).length === (n >= 8 ? 2 : 1) && !inno.some((id) => m(id) === 4), `${n} игроков: есть невиновные двойники с тремя совпадениями, всем четырём не подходит никто`);
-  check(game.clues.every((c) => c.fits.length >= 2 && c.fits.length <= 3 && c.fits.some((id) => !crim.includes(id))), `${n} игроков: каждой улике подходят 2–3 игрока, среди них есть невиновный`);
+  const cap = n >= 8 ? 4 : 3;
+  check(game.clues.every((c) => c.fits.length >= 2 && c.fits.length <= cap && c.fits.some((id) => !crim.includes(id))), `${n} игроков: каждой улике подходят от 2 до ${cap} игроков, среди них есть невиновный`);
   const habs = game.order.map((id) => game.players[id].card.habitTags.length);
-  check(habs.every((h) => h >= 2 && h <= 3), `${n} игроков: особенностей у всех 2–3, у преступников не больше: ${habs.join(',')}`);
+  check(habs.every((h) => h === 2), `${n} игроков: у всех ровно две особенности: ${habs.join(',')}`);
+  check(game.order.every((id) => game.players[id].card.habitTags.every((t) => t.startsWith(game.caseData.id + '.'))), `${n} игроков: приметы взяты из набора этого дела`);
 }
 
 {

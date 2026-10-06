@@ -33,6 +33,7 @@
         else if (a === 'pack') call('room:pack', { packId: b.dataset.id });
         else if (a === 'discuss' || a === 'turn') call('room:setting', { key: a, value: Number(b.dataset.v) });
         else if (a === 'mode') call('room:setting', { key: 'mode', value: b.dataset.v });
+        else if (a === 'hints') call('room:setting', { key: 'hints', value: b.dataset.v });
         else if (a === 'ready') call('room:ready');
         else if (a === 'start') call('room:start');
         else if (a === 'leave') call('room:leave');
@@ -93,8 +94,10 @@
       const s = st.settings;
       setHtml(root.querySelector('#lSet'), `
         <div class="panel-head"><h2>Как играем</h2><span class="count">${isHost ? 'настраивает ведущий' : `ведущий: ${esc(hostP.name || '')}`}</span></div>
-        <div class="set-row" style="margin-top:0;padding-top:0;border:0"><div><div class="label">Ход партии</div><p class="hint" style="margin:4px 0 0">${s.mode === 'host' ? 'Ведущий сам листает раунды кнопкой «Дальше».' : 'Фазы сменяются по таймеру.'}</p></div>
+        <div class="set-row" style="margin-top:0;padding-top:0;border:0"><div><div class="label">Ход партии</div><p class="hint" style="margin:4px 0 0">${s.mode === 'host' ? 'Ведущий листает раунды и сам запускает таймер.' : 'Фазы сменяются по таймеру.'}</p></div>
           ${seg('mode', [['host', 'Ведущий'], ['timers', 'Таймеры']], s.mode, isHost)}</div>
+        <div class="set-row"><div><div class="label">Режим</div><p class="hint" style="margin:4px 0 0">${s.hints === 'light' ? 'Игра сама подсвечивает, кто подходит под улику.' : 'Совпадения с уликами не подсвечиваются: слушайте и сверяйте сами.'}</p></div>
+          ${seg('hints', [['normal', 'Обычный'], ['light', 'Лайт']], s.hints || 'normal', isHost)}</div>
         <div class="set-row"><div class="label">Рассказ каждого</div>${seg('turn', st.rules.turnOptions.map((v) => [v, `${v} с`]), s.turn, isHost)}</div>
         <div class="set-row"><div class="label">Обсуждение в раунде</div>${seg('discuss', st.rules.talkOptions.map((v) => [v, v >= 120 ? `${v / 60} мин` : `${v} с`]), s.discuss, isHost)}</div>`);
 

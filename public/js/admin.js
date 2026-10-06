@@ -12,7 +12,7 @@
   Screens.admin = {
     mount(root) {
       this.tab = 'test'; this.auth = null; this.cases = []; this.edit = null; this.rooms = []; this.simOut = null;
-      this.testOpts = { name: 'Админ', bots: 6, caseId: 'random', role: 'random', speed: 1, autostart: true, auto: false, mode: 'host' };
+      this.testOpts = { name: 'Админ', bots: 6, caseId: 'random', role: 'random', speed: 1, autostart: true, auto: false, mode: 'host', hints: 'normal' };
       root.innerHTML = '<div class="wrap admin" id="adm"></div>';
       this.root = root.firstElementChild;
       this.root.addEventListener('click', (e) => this.onClick(e));
@@ -86,6 +86,7 @@
           <div class="field"><label for="tBots">Ботов: ${o.bots} (всего игроков ${total}${total >= 6 ? ", убийца и сообщник" : ""})</label><input type="range" id="tBots" data-k="bots" min="3" max="9" value="${o.bots}"></div>
           <div class="field"><label>Ваша роль</label><div class="seg" role="group" style="flex-wrap:wrap">${ROLES.map(([k, t]) => `<button type="button" data-a="set" data-k="role" data-v="${k}" class="${o.role === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
           <div class="field"><label>Как идёт партия</label><div class="seg" role="group">${[['host', 'Ведущий (вы)'], ['timers', 'Таймеры']].map(([k, t]) => `<button type="button" data-a="set" data-k="mode" data-v="${k}" class="${o.mode === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+          <div class="field"><label>Режим</label><div class="seg" role="group">${[['normal', 'Обычный'], ['light', 'Лайт']].map(([k, t]) => `<button type="button" data-a="set" data-k="hints" data-v="${k}" class="${(o.hints || 'normal') === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
           <div class="field"><label for="tSpeed">Скорость времени</label><select class="input" id="tSpeed" data-k="speed">${SPEEDS.map(([v, t]) => `<option value="${v}" ${o.speed === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
           ${o.role === 'accomplice' && total < 6 ? '<p class="note" style="border-color:var(--amber);background:rgba(233,162,59,.1)">Сообщник появляется при шести игроках и больше. Добавьте ботов, иначе роль выпадет случайной.</p>' : ''}
           <div class="row2"><label class="switch"><input type="checkbox" data-k="autostart" ${o.autostart ? 'checked' : ''}><span></span>Сразу начать партию</label>
@@ -100,7 +101,7 @@
     },
     async createTest() {
       const o = this.testOpts;
-      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode });
+      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode, hints: o.hints });
       if (!r.ok) return fail(r);
       if (o.auto) await Net.call('admin:room', { code: r.code, action: 'auto' });
       location.hash = `#/room/${r.code}`;
