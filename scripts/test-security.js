@@ -34,6 +34,15 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     try { r = Engine.act(game, 'p0', a, {}, 2000); } catch (e) { r = { threw: e.message }; }
     check(r && r.ok === false && !r.threw, `действие «${a}» отклоняется без исключения`);
   }
+  // Живая партия: seed на 128 бит, по своей карте его не подобрать перебором
+  {
+    const host = 'tok-seed-host-aaaaaaaa';
+    const rc = hub.handle(host, 'room:create', { name: 'Ведущий' });
+    for (let i = 0; i < 5; i++) hub.handle('tok-seed-' + i + '-bbbbbbbbbb', 'room:join', { code: rc.code, name: 'Игрок' + i });
+    const room = hub.roomOf(host);
+    hub._startGame(room, { force: true });
+    check(typeof room.gameMeta.seed === 'string' && /^[0-9a-f]{32}$/.test(room.gameMeta.seed), 'seed живой партии: 128 случайных бит');
+  }
   // В обычном режиме ключи совпадений с уликами не уходят в сеть
   for (const hints of ['normal', 'light']) {
     const g = Engine.createGame({ caseData: Cases.CASES[0], players, settings: { hints }, seed: 5, now: 1000 });

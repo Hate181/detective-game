@@ -641,6 +641,8 @@
       bad('Неизвестная кнопка.');
     }
     if (pl.do !== 'next') bad('Неизвестная кнопка.');
+    // Рулетку полиции не пропускает никто, ведущий тоже: все досматривают её до конца.
+    if (game.overlay && game.overlay.type === 'lottery') bad('Полиция ещё решает, кого задержать.');
     if (game.overlay) { resolveOverlayTimeout(game, now); return; }
     endPhase(game, now);
   };

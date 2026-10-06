@@ -1,9 +1,10 @@
 /* Хаб: комнаты, лобби, запуск партий, админские команды.
    Не знает про сеть: сервер подключает к нему сокеты, а демо-режим браузера вызывает напрямую. */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'), require('./cases.js'), require('./engine.js'));
-  else root.DetectiveHub = factory(root.DetectiveContent, root.DetectiveCases, root.DetectiveEngine);
-})(typeof self !== 'undefined' ? self : this, function (Content, Cases, Engine) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'), require('./cases.js'), require('./engine.js'), require('./rng.js'));
+  else root.DetectiveHub = factory(root.DetectiveContent, root.DetectiveCases, root.DetectiveEngine, root.DetectiveRng);
+})(typeof self !== 'undefined' ? self : this, function (Content, Cases, Engine, RngLib) {
+  const { randomSeed } = RngLib;
   const MIN_PLAYERS = 6, MAX_PLAYERS = 10, TEST_MIN = 4;
   const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const CODE_LENGTH = 5;
@@ -369,7 +370,7 @@
         else if (room.testRole === 'innocent' && bots.length) forceKiller = bots[this._rand(bots.length)].id;
         else if (room.testRole === 'accomplice' && bots.length) { forceKiller = bots[this._rand(bots.length)].id; forceAccomplice = host.id; }
       }
-      const seed = opts.seed || ((Math.random() * 0x7fffffff) | 0);
+      const seed = opts.seed || randomSeed();
       room.game = Engine.createGame({
         caseData: c, seed, now: this.now(),
         players: members.map((p) => ({ id: p.id, name: p.name, bot: p.isBot })),

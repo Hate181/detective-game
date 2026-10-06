@@ -211,6 +211,14 @@ for (const n of [6, 7, 8, 9, 10]) {
   const same = E.act(game, holder, 'card', { type: 'confront', target: a, target2: a, trait: 'alibi' }, st.now += 10);
   check(!same.ok, 'одного игрока с самим собой не свести');
   check(!E.act(game, holder, 'card', { type: 'confront', target: a, target2: b, trait: 'profession' }, st.now += 10).ok, 'профессию очной ставкой не вскрыть');
+  for (const k of ['__proto__', 'constructor', 'toString']) {
+    let r; try { r = E.act(game, holder, 'card', { type: 'confront', target: a, target2: k, trait: k }, st.now += 10); } catch (e) { r = { threw: e.message }; }
+    check(r && r.ok === false && !r.threw, `очная ставка с «${k}» отклоняется без исключения`);
+  }
+  {
+    let r; try { r = E.act(game, holder, 'card', { type: 'lab', clueId: { toString: null } }, st.now += 10); } catch (e) { r = { threw: e.message }; }
+    check(r && r.ok === false && !r.threw, 'экспертиза с мусором вместо улики отклоняется');
+  }
   const r = E.act(game, holder, 'card', { type: 'confront', target: a, target2: b, trait: 'alibi' }, st.now += 10);
   check(r.ok && game.players[a].revealed.alibi && game.players[b].revealed.alibi, 'Очная ставка: оба раскрыли алиби');
   check(/Очная ставка/.test(game.feed.map((f) => f.text).join(' ')), 'в журнале видно, кто кого свёл');

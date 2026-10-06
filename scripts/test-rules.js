@@ -127,6 +127,7 @@ function start(rules) {
   const v = E.view(game, pair[0]);
   check(v.overlay.type === 'lottery' && v.overlay.winnerId === ov.winnerId && v.overlay.startedAt, 'все видят одну и ту же рулетку');
   check(!E.act(game, pair[0], 'vote', { target: pair[1] }, now += 10).ok, 'пока крутится рулетка, голосовать нельзя');
+  check(!E.act(game, game.hostId, 'host', { do: 'next' }, now += 10).ok && game.overlay && game.overlay.type === 'lottery', 'ведущий не может пропустить рулетку');
   const winner = ov.winnerId;
   E.tick(game, now += 2000);
   check(game.overlay && game.overlay.type === 'lottery', 'рулетка ещё крутится');
