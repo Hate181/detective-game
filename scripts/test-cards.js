@@ -13,6 +13,8 @@ function start(n, seed = 5, rules) {
   E.skip(game, st.now += 1000);
   return st;
 }
+/** Снять оверлей: отказаться от Адвоката или дождаться рулетки полиции. */
+const clearOv = (st) => (st.game.overlay.type === 'lottery' ? E.skip(st.game, st.now += 100) : E.act(st.game, st.game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100));
 const act = (g) => g.order.filter((id) => g.players[id].status === 'active');
 const has = (g, id, type) => g.players[id].cards.some((c) => !c.used && c.type === type);
 function toPhase(st, phases) {
@@ -20,7 +22,7 @@ function toPhase(st, phases) {
   for (let i = 0; i < 400; i++) {
     if (game.phase === PH.ENDED) return false;
     if (phases.includes(game.phase) && !game.overlay) return true;
-    if (game.overlay) { E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100); continue; }
+    if (game.overlay) { clearOv(st); continue; }
     E.skip(game, st.now += 1000);
   }
   return false;
@@ -71,7 +73,7 @@ for (const n of [6, 7, 8, 9, 10]) {
   check(/подменена/.test(E.view(game, holder).me.notes.map((n) => n.text).join(' ')), 'тот, кто подменил, видит запись об этом у себя');
   // доводим до раунда, где улика найдена
   for (let i = 0; i < 400 && sw.revealedRound === null && game.phase !== PH.ENDED; i++) {
-    if (game.overlay) { E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100); continue; }
+    if (game.overlay) { clearOv(st); continue; }
     if (game.vote && [PH.VOTE].includes(game.phase)) { const inn = act(game).find((id) => game.players[id].role === 'innocent' && id !== holder && id !== target && id !== other); if (inn) { voteFor(st, inn); continue; } }
     E.skip(game, st.now += 1000);
   }
@@ -82,7 +84,7 @@ for (const n of [6, 7, 8, 9, 10]) {
     check(vh && vh.mine, 'у того, кто подменил, на улике пометка «подменена вами»');
   } else check(false, 'подменённая улика так и не была найдена');
   toPhase(st, [PH.ENDED]);
-  if (game.phase !== PH.ENDED) { for (let i = 0; i < 400 && game.phase !== PH.ENDED; i++) { if (game.overlay) E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100); else E.skip(game, st.now += 1000); } }
+  if (game.phase !== PH.ENDED) { for (let i = 0; i < 400 && game.phase !== PH.ENDED; i++) { if (game.overlay) clearOv(st); else E.skip(game, st.now += 1000); } }
   const rc = game.results.clues.find((c) => c.id === sw.id);
   check(rc && rc.planted && rc.orig && rc.orig.text && game.results.plants.some((p) => p.by === holder && p.targetId === target), 'в итогах видно, кто подменил, против кого и какая была настоящая улика');
 }
@@ -118,7 +120,7 @@ for (const n of [6, 7, 8, 9, 10]) {
   const { game } = st;
   toPhase(st, [PH.VOTE]);
   voteFor(st, game.killerId);
-  while (game.overlay) E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100);
+  while (game.overlay) clearOv(st);
   const acc = game.accompliceId;
   const holders = act(game).filter((id) => has(game, id, 'trail'));
   check(holders.length === 1 && holders[0] === acc, 'исключили убийцу: «Ложный след» только у сообщника');
@@ -234,7 +236,7 @@ for (const n of [6, 7, 8, 9, 10]) {
   const { game } = st;
   toPhase(st, [PH.VOTE]);
   voteFor(st, game.killerId);
-  while (game.overlay) E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 100);
+  while (game.overlay) clearOv(st);
   check(!act(game).some((id) => has(game, id, 'trail')), 'правило trail: false отключает карту');
 }
 

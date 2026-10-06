@@ -108,5 +108,33 @@ function start(rules) {
   check(game.clock.state === 'run', 'за ведущего на автопилоте часы идут сами');
 }
 
+{
+  // Две ничьи подряд: «Полиция решает, кого задержать», рулетка у всех, исключают того, на ком она остановилась
+  const { game } = start();
+  let now = 2000;
+  for (let i = 0; i < 40 && game.phase !== PH.VOTE; i++) E.skip(game, now += 1000);
+  check(game.phase === PH.VOTE, 'дошли до голосования');
+  const act = () => game.order.filter((id) => game.players[id].status === 'active');
+  const pair = act().slice(0, 2);
+  // Голоса поровну между двумя: половина против первого, половина против второго
+  const split = () => act().forEach((id, i) => E.act(game, id, 'vote', { target: id === pair[0] ? pair[1] : id === pair[1] ? pair[0] : pair[i % 2] }, now += 10));
+  split(); E.skip(game, now += 100);
+  check(game.phase === PH.VOTE && game.vote.runoff, 'первая ничья: переголосование');
+  split(); E.skip(game, now += 100);
+  const ov = game.overlay;
+  check(ov && ov.type === 'lottery' && ov.candidates.length === 2 && pair.includes(ov.winnerId), 'вторая ничья: окно полиции с рулеткой');
+  check(/Полиция решает/.test(game.feed.map((f) => f.text).join(' ')), 'в журнале: полиция решает');
+  const v = E.view(game, pair[0]);
+  check(v.overlay.type === 'lottery' && v.overlay.winnerId === ov.winnerId && v.overlay.startedAt, 'все видят одну и ту же рулетку');
+  check(!E.act(game, pair[0], 'vote', { target: pair[1] }, now += 10).ok, 'пока крутится рулетка, голосовать нельзя');
+  const winner = ov.winnerId;
+  E.tick(game, now += 2000);
+  check(game.overlay && game.overlay.type === 'lottery', 'рулетка ещё крутится');
+  E.tick(game, ov.endsAt + 10);
+  while (game.overlay && game.overlay.type === 'save') E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, ov.endsAt + 20);
+  check(game.players[winner].status === 'out', 'вылетел тот, на ком остановилась рулетка');
+  check(game.kicks[game.kicks.length - 1].via === 'random', 'в итогах отмечено: решила полиция');
+}
+
 console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» и голоса без выбора в порядке');
 process.exit(fails ? 1 : 0);

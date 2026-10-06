@@ -335,10 +335,23 @@
     const max = Math.max(...v.candidates.map((id) => v.count[id]));
     const leaders = v.candidates.filter((id) => v.count[id] === max);
     if (leaders.length > 1 && max > 0 && !v.runoff) return startVote(game, now, 'kick', { candidates: leaders, runoff: true });
-    let via = v.runoff ? 'runoff' : 'vote';
-    let leader = leaders[0];
-    if (leaders.length > 1) { leader = game.rng.pick(leaders); via = 'random'; pushFeed(game, now, { kind: 'vote', text: 'Голоса снова поровну. Решает жребий.' }); }
-    resolveKick(game, now, leader, via);
+    if (leaders.length > 1) return startLottery(game, now, leaders, 'random');
+    resolveKick(game, now, leaders[0], v.runoff ? 'runoff' : 'vote');
+  }
+
+  /** Ничья, которую голосованием не разрешить: «Полиция решает, кого задержать». Все видят рулетку,
+      исход выбран сразу, исключение после того, как рулетка остановится. */
+  function startLottery(game, now, candidates, via) {
+    game.overlay = { type: 'lottery', candidates: candidates.slice(), winnerId: game.rng.pick(candidates), via, startedAt: now, endsAt: now + dur(game, 'lottery') };
+    game.autoAt = null;
+    pushFeed(game, now, { kind: 'vote', text: 'Голоса снова поровну. Полиция решает, кого задержать.' });
+  }
+
+  function finishLottery(game, now) {
+    const ov = game.overlay;
+    game.overlay = null;
+    pushFeed(game, now, { kind: 'vote', text: `Полиция задерживает: ${nm(game, ov.winnerId)}.` });
+    resolveKick(game, now, ov.winnerId, ov.via);
   }
 
   function tallyPoll(game, now) {
@@ -373,8 +386,8 @@
       const pmax = Math.max(...leaders.map((id) => game.poll.count[id] || 0));
       leaders = leaders.filter((id) => (game.poll.count[id] || 0) === pmax);
     }
-    const leader = leaders.length > 1 ? game.rng.pick(leaders) : leaders[0];
-    resolveKick(game, now, leader, 'final');
+    if (leaders.length > 1) return startLottery(game, now, leaders, 'final');
+    resolveKick(game, now, leaders[0], 'final');
   }
 
   function resolveKick(game, now, leaderId, via) {
@@ -812,6 +825,7 @@
   function resolveOverlayTimeout(game, now) {
     const ov = game.overlay;
     if (ov.type === 'save') resolveSave(game, now, 'none');
+    else if (ov.type === 'lottery') finishLottery(game, now);
   }
 
   /** Все ли, от кого фаза ждёт ответа, уже ответили. */
@@ -943,7 +957,7 @@
       accomplice: !!game.accompliceId, gang: !!game.gang,
       criminals: game.gang ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
       kicksLeft: game.gang && game.round >= ROUNDS ? game.finalLeft : null,
-      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, nomineeId: ov.nomineeId, voters: ov.voters || [], options: me && ov.nomineeId === me.id ? ov.options : null } : null,
+      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, voters: ov.voters || [], options: me && ov.nomineeId === me.id ? ov.options : null } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
       clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id)), checked: labVerdict(me, c) })),

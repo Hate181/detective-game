@@ -258,6 +258,7 @@ function playGame(cfg) {
   let steps = 0;
   while (game.phase !== PH.ENDED && steps++ < 4000) {
     now += 1000;
+    if (game.overlay && game.overlay.type === 'lottery') { E.skip(game, now); continue; }
     if (game.overlay) {
       const nid = game.overlay.nomineeId;
       E.act(game, nid, 'save', saveChoice(game, nid, S[nid], rand), now);

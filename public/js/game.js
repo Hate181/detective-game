@@ -13,7 +13,7 @@
     killer: { cls: 'role-killer', name: 'Убийца', hint: 'Не выдайте себя. Улики ниже указывают на вас.', gang: 'Не выдайте себя и сообщника. Вам подходят три улики из четырёх, сообщнику тоже три, а кому-то из невиновных столько же.' },
     accomplice: { cls: 'role-accomplice', name: 'Сообщник', hint: 'Вы знаете убийцу. Уводите подозрения.', gang: 'Вы знаете убийцу, и вас обоих ищут. Каждому из вас подходят три улики из четырёх. Вы победите, если хоть один останется в игре или если вас станет столько же, сколько невиновных.' },
   };
-  const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса разделились, решил жребий.', final: 'Итог финального голосования.' };
+  const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса дважды разделились поровну, задержала полиция.', final: 'Итог финального голосования.' };
   const PASSIVE = ['advocate', 'trail'];
   const HOST_BTN = {
     brief: ['Начать дело', 'Откроется первая улика'],
@@ -431,6 +431,9 @@
     renderOverlay() {
       const g = this.g, me = this.me, ov = g.overlay;
       const host = this.root.querySelector('#gOv');
+      if (ov && ov.type === 'lottery') return this.renderLottery(host, ov);
+      // Рулетку строили вручную, мимо setHtml: убираем её так же и сбрасываем запомненную разметку.
+      if (this.lotKey) { this.lotKey = null; host.innerHTML = ''; host._html = undefined; }
       if (!ov) { setHtml(host, ''); return; }
       const nm = (id) => (this.byId[id] ? this.byId[id].name : '?');
       const mine = ov.nomineeId === me.id && me.status === 'active';
@@ -442,6 +445,49 @@
       const inner = `<h3>Адвокат <span class="left" data-end="${ov.endsAt}">0:00</span></h3>
         <p>${lead}</p>${btns}`;
       if (setHtml(host, `<div class="ov" role="alertdialog">${inner}</div>`)) this.tickClocks();
+    },
+
+    /* ---------- Ничья после переголосования: рулетка «Полиция решает» ----------
+       Лента строится один раз на ничью и крутится один раз; при обновлениях состояния её не трогаем.
+       Кто вылетит, решил сервер, лента лишь останавливается на нём. Опоздавший видит уже остановленную ленту. */
+    renderLottery(host, ov) {
+      const key = String(ov.startedAt);
+      if (this.lotKey === key) return;
+      this.lotKey = key;
+      host._html = undefined;
+      const ids = ov.candidates || [];
+      const nm = (id) => (this.byId[id] ? this.byId[id].name : '?');
+      const N = 46, W = 38;
+      // Лента из перемешанных блоков по всем кандидатам: имена чередуются, а не идут подряд.
+      const seq = [];
+      while (seq.length < N) { const blk = ids.slice().sort(() => Math.random() - 0.5); if (seq.length && blk[0] === seq[seq.length - 1]) blk.push(blk.shift()); seq.push(...blk); }
+      seq.length = N; seq[W] = ov.winnerId;
+      host.innerHTML = `<div class="lot" role="alertdialog" aria-label="Полиция решает, кого задержать">
+        <div class="lot-box">
+          <span class="label">Голоса дважды разделились поровну</span>
+          <h3>Полиция решает, кого задержать</h3>
+          <div class="lot-win"><div class="lot-strip">${seq.map((id, i) => `<div class="lot-item${i === W ? ' pick' : ''}">${avatar(nm(id), this.idx[id], 'lg')}<b>${esc(nm(id))}</b></div>`).join('')}</div></div>
+          <p class="lot-res" aria-live="polite">&nbsp;</p>
+        </div></div>`;
+      const win = host.querySelector('.lot-win'), strip = host.querySelector('.lot-strip'), items = strip.children;
+      const total = Math.max(1500, ov.endsAt - ov.startedAt), spin = Math.min(6500, total - 1500);
+      const left = spin - (Net.now() - ov.startedAt);
+      const step = items[1].offsetLeft - items[0].offsetLeft, iw = items[0].offsetWidth;
+      const jitter = (Math.random() - 0.5) * iw * 0.6;
+      const to = -(W * step + iw / 2 - win.clientWidth / 2 + jitter);
+      const done = () => {
+        if (this.lotKey !== key) return;
+        items[W].classList.add('won');
+        host.querySelector('.lot-res').textContent = `Задержан: ${nm(ov.winnerId)}`;
+      };
+      const still = left < 300 || matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (still) { strip.style.transform = `translateX(${to}px)`; done(); return; }
+      strip.style.transform = 'translateX(0px)';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        strip.style.transition = `transform ${left}ms cubic-bezier(.06, .62, .12, 1)`;
+        strip.style.transform = `translateX(${to}px)`;
+      }));
+      setTimeout(done, left + 50);
     },
 
     /* ---------- Админский пульт ---------- */
