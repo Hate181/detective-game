@@ -45,6 +45,8 @@
   const SAFE_TRAITS = ['profession', 'habit', 'relation', 'motive', 'alibi'];
   const ASKABLE_TRAITS = SAFE_TRAITS.concat('secret');
   const SEARCHABLE_TRAITS = ASKABLE_TRAITS.concat('goal');
+  /* «Очная ставка» сверяет показания: где был, кем приходился жертве, зачем ему её смерть. Профессия и особенность сюда не входят. */
+  const CONFRONT_TRAITS = ['alibi', 'relation', 'motive'];
 
   const RELATIONS = [
     'Дальнее родство по линии матери', 'Общий бизнес больше десяти лет', 'Старая дружба, давшая трещину',
@@ -111,11 +113,11 @@
   const CARDS = {
     warrant:   { name: 'Обыск', desc: 'Тайно посмотреть одну скрытую характеристику игрока.' },
     advocate:  { name: 'Адвокат', desc: 'Отменить один голос против себя, когда вас исключают.' },
-    gossip:    { name: 'Сплетня', desc: 'Анонимно вбросить утверждение в журнал.' },
+    confront:  { name: 'Очная ставка', desc: 'Свести двух игроков: оба при всех раскрывают алиби, связь с жертвой или мотив, на ваш выбор.' },
     testimony: { name: 'Показания', desc: 'Заставить игрока раскрыть конкретный пункт.' },
     swap:      { name: 'Подмена улики', desc: 'Тайно подменить одну из ещё не найденных улик: она укажет на выбранного игрока.' },
-    lab:       { name: 'Экспертиза', desc: 'Тайно узнать, подходит ли открытая улика выбранному игроку.' },
-    trail:     { name: 'Ложный след', desc: 'Срабатывает сама, один раз: когда «Обыск» или «Экспертиза» против вас должны были вас выдать, они покажут чистый результат.' },
+    lab:       { name: 'Экспертиза', desc: 'Тайно проверить одну из найденных улик: правдивая она или подменённая.' },
+    trail:     { name: 'Ложный след', desc: 'Срабатывает сама, один раз: когда «Обыск» против вас должен был вас выдать, он покажет чистый результат.' },
   };
   /* Сколько «Подмен» лежит в колоде. Остальные карты раздаются по кругу, «Экспертиза» и «Ложный след» приходят по ходу партии. */
   const SWAPS_IN_DECK = 2;
@@ -189,7 +191,7 @@
   }
 
   return {
-    TAGS, TAG_KEYS, HABIT_TAGS, TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS,
+    TAGS, TAG_KEYS, HABIT_TAGS, TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS,
     RELATIONS, MOTIVES, SECRET_LOC, SECRET_PLAIN, GENERIC_PROFESSIONS, CARDS, SWAPS_IN_DECK, AWARDS, DURATIONS, PROMPTS, BOT_NAMES, BOT_LINES, trans,
     registerCase, habitPool, clueTexts, caseList,
   };

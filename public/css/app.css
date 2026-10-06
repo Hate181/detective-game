@@ -465,8 +465,6 @@ select.input option { background: var(--panel); }
 .msg { font-size: 13.5px; line-height: 1.4; animation: msg-in .25s var(--ease); word-break: break-word; }
 .msg .who { font-weight: 600; margin-right: 6px; }
 .msg.ghost { opacity: .6; font-style: italic; }
-.msg.gossip { padding: 7px 9px; border-radius: 6px; background: rgba(233, 162, 59, .08); border: 1px dashed rgba(233, 162, 59, .5); }
-.msg.gossip .who { color: var(--amber); font-family: var(--f-mono); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .sys { padding: 5px 9px; border-radius: 4px; background: var(--bg-2); border-left: 3px solid var(--line); color: #cdbb9f; font-size: 12.5px; line-height: 1.4; animation: msg-in .25s var(--ease); }
 .sys.clue { border-left-color: var(--red); color: var(--text); }
 .sys.reveal { border-left-color: var(--teal); }

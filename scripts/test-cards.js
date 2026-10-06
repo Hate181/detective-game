@@ -101,12 +101,13 @@ for (const n of [6, 7, 8, 9, 10]) {
     toPhase(st, [PH.TALK]);
     const me = holders[0];
     const clue = game.clues.find((c) => c.revealedRound !== null);
-    const t = act(game).find((id) => id !== me && game.players[id].card.tags.includes(clue.tag)) || act(game).find((id) => id !== me);
-    const r = E.act(game, me, 'card', { type: 'lab', target: t, clueId: clue.id }, st.now += 10);
+    const t = act(game).find((id) => id !== me);
+    const r = E.act(game, me, 'card', { type: 'lab', clueId: clue.id }, st.now += 10);
     const note = game.players[me].notes.find((x) => x.kind === 'lab');
-    check(r.ok && note && note.fits === game.players[t].card.tags.includes(clue.tag), `«Экспертиза» ответила правду: ${note && note.text}`);
-    check(!E.view(game, t).me.notes.some((x) => x.kind === 'lab'), 'результат видит только владелец карты');
-    const bad = E.act(game, me, 'card', { type: 'lab', target: t, clueId: game.clues.find((c) => c.revealedRound === null).id }, st.now += 10);
+    check(r.ok && note && note.fake === !!clue.planted && /правдивая/.test(note.text), `«Экспертиза» ответила правду: ${note && note.text}`);
+    check(E.view(game, me).clues.find((c) => c.id === clue.id).checked === 'real', 'у владельца на улике пометка «экспертиза: правдивая»');
+    check(!E.view(game, t).me.notes.some((x) => x.kind === 'lab') && !E.view(game, t).clues.some((c) => c.checked), 'результат видит только владелец карты');
+    const bad = E.act(game, me, 'card', { type: 'lab', clueId: game.clues.find((c) => c.revealedRound === null).id }, st.now += 10);
     check(!bad.ok, 'ненайденную улику на экспертизу не отдать');
   }
 }
@@ -146,36 +147,19 @@ for (const n of [6, 7, 8, 9, 10]) {
   check(tn && tn.targetId === cop && E.view(game, acc).me.notes.some((x) => x.kind === 'trail'), `сообщник узнал, кто его проверял: ${tn && tn.text}`);
   check(!E.view(game, cop).me.notes.some((x) => x.kind === 'trail'), 'проверявший о срабатывании не знает');
 
-  // Второй раз не срабатывает: Экспертиза говорит правду
-  const clue = game.clues.find((c) => c.revealedRound !== null && card.tags.includes(c.tag));
-  if (clue) {
-    E.act(game, cop, 'card', { type: 'lab', target: acc, clueId: clue.id }, st.now += 10);
-    const ln = game.players[cop].notes.find((x) => x.kind === 'lab');
-    check(ln && ln.fits === true, 'после срабатывания Экспертиза показывает правду');
-  }
 }
 
 {
-  // Экспертиза и ложное алиби тоже прикрыты «Ложным следом»
-  let labOk = false, alibiOk = false;
-  for (let seed = 1; seed < 80 && !(labOk && alibiOk); seed++) {
+  // Ложное алиби тоже прикрыто «Ложным следом»
+  let alibiOk = false;
+  for (let seed = 1; seed < 80 && !alibiOk; seed++) {
     const st = start(8, seed);
     const { game } = st;
     if (!toPhase(st, [PH.TALK])) continue;
     const crim = game.accompliceId;
     const cop = act(game).find((id) => game.players[id].role === 'innocent');
-    const clue = game.clues.find((c) => c.revealedRound !== null && game.players[crim].card.tags.includes(c.tag));
-    if (!labOk && clue) {
-      game.players[crim].cards.push({ type: 'trail', used: false });
-      game.players[cop].cards.push({ type: 'lab', used: false });
-      E.act(game, cop, 'card', { type: 'lab', target: crim, clueId: clue.id }, st.now += 10);
-      const ln = game.players[cop].notes.find((x) => x.kind === 'lab');
-      check(ln && ln.fits === false && /не подходит/.test(ln.text) && !has(game, crim, 'trail'), 'Экспертиза против владельца карты: «не подходит»');
-      labOk = true;
-      continue;
-    }
     const pc = game.players[crim].card;
-    if (!alibiOk && pc.alibi.claim && pc.alibi.claim.loc !== pc.alibi.real.loc) {
+    if (pc.alibi.claim && pc.alibi.claim.loc !== pc.alibi.real.loc) {
       game.players[crim].cards.push({ type: 'trail', used: false });
       game.players[cop].cards.push({ type: 'warrant', used: false });
       E.act(game, cop, 'card', { type: 'warrant', target: crim, trait: 'alibi' }, st.now += 10);
@@ -184,7 +168,64 @@ for (const n of [6, 7, 8, 9, 10]) {
       alibiOk = true;
     }
   }
-  check(labOk && alibiOk, 'нашли партии для проверки Экспертизы и алиби');
+  check(alibiOk, 'нашли партию для проверки ложного алиби');
+}
+
+{
+  // Экспертиза находит подменённую улику, на правдивую говорит «правдивая», дважды одну улику не проверить
+  const st = start(8, 11);
+  const { game } = st;
+  const holder = game.order.find((id) => has(game, id, 'swap'));
+  toPhase(st, [PH.TALK]);
+  const target = E.swapTargets(game, game.players[holder])[0];
+  E.act(game, holder, 'card', { type: 'swap', target }, st.now += 10);
+  const planted = game.clues.find((c) => c.planted);
+  planted.revealedRound = game.round; // считаем, что её уже нашли: раунды здесь не важны
+  const cop = act(game).find((id) => id !== holder && game.players[id].role === 'innocent');
+  game.players[cop].cards.push({ type: 'lab', used: false }, { type: 'lab', used: false }, { type: 'lab', used: false });
+  const r1 = E.act(game, cop, 'card', { type: 'lab', clueId: planted.id }, st.now += 10);
+  const n1 = game.players[cop].notes.filter((x) => x.kind === 'lab').pop();
+  check(r1.ok && n1.fake === true && /ложная/.test(n1.text), `Экспертиза нашла подмену: ${n1 && n1.text}`);
+  check(E.view(game, cop).clues.find((c) => c.id === planted.id).checked === 'fake', 'на улике пометка «экспертиза: ложная»');
+  check(!game.feed.some((f) => /ложная|подмен/i.test(f.text)), 'в журнале о проверке ни слова');
+  const again = E.act(game, cop, 'card', { type: 'lab', clueId: planted.id }, st.now += 10);
+  check(!again.ok, 'одну улику дважды не проверить');
+  const real = game.clues.find((c) => c.revealedRound !== null && !c.planted);
+  const r2 = E.act(game, cop, 'card', { type: 'lab', clueId: real.id }, st.now += 10);
+  const n2 = game.players[cop].notes.filter((x) => x.kind === 'lab').pop();
+  check(r2.ok && n2.fake === false, `правдивая улика: ${n2 && n2.text}`);
+}
+
+{
+  // Очная ставка: двое при всех раскрывают один пункт
+  const st = start(8, 7);
+  const { game } = st;
+  const holder = game.order[0];
+  game.players[holder].cards = [{ type: 'confront', used: false }];
+  toPhase(st, [PH.TALK]);
+  const [a, b] = act(game).filter((id) => id !== holder && !game.players[id].revealed.alibi);
+  const self = E.act(game, holder, 'card', { type: 'confront', target: holder, target2: a, trait: 'alibi' }, st.now += 10);
+  check(!self.ok, 'себя на очную ставку не вызвать');
+  const same = E.act(game, holder, 'card', { type: 'confront', target: a, target2: a, trait: 'alibi' }, st.now += 10);
+  check(!same.ok, 'одного игрока с самим собой не свести');
+  check(!E.act(game, holder, 'card', { type: 'confront', target: a, target2: b, trait: 'profession' }, st.now += 10).ok, 'профессию очной ставкой не вскрыть');
+  const r = E.act(game, holder, 'card', { type: 'confront', target: a, target2: b, trait: 'alibi' }, st.now += 10);
+  check(r.ok && game.players[a].revealed.alibi && game.players[b].revealed.alibi, 'Очная ставка: оба раскрыли алиби');
+  check(/Очная ставка/.test(game.feed.map((f) => f.text).join(' ')), 'в журнале видно, кто кого свёл');
+  check(game.players[holder].cards[0].used, 'карта потрачена');
+  // Пункт, известный у обоих, не выбрать; известный у одного раскрывается у второго
+  game.players[holder].cards.push({ type: 'confront', used: false });
+  check(!E.act(game, holder, 'card', { type: 'confront', target: a, target2: b, trait: 'alibi' }, st.now += 10).ok, 'пункт, открытый у обоих, не выбрать');
+  const c = act(game).find((id) => ![holder, a, b].includes(id) && !game.players[id].revealed.alibi);
+  const r2 = E.act(game, holder, 'card', { type: 'confront', target: a, target2: c, trait: 'alibi' }, st.now += 10);
+  check(r2.ok && game.players[c].revealed.alibi, 'у кого пункт уже открыт, второй всё равно раскрывает');
+}
+
+{
+  // В колоде нет «Сплетни», вместо неё «Очная ставка»
+  let conf = 0, gos = 0;
+  for (let seed = 1; seed <= 30; seed++) { const { game } = start(10, seed); game.order.forEach((id) => { const t = game.players[id].cards[0].type; if (t === 'confront') conf++; if (t === 'gossip') gos++; }); }
+  check(conf > 0 && gos === 0, `«Сплетни» в колоде нет, «Очных ставок» ${conf} на 30 партий`);
 }
 
 {

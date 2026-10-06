@@ -52,9 +52,14 @@ const pickPersona = (rand, mix) => { let r = rand.next() * Object.values(mix).re
 /* ---------- Знания игроков ---------- */
 const pl = (game, id) => game.players[id];
 const alive = (game) => game.order.filter((id) => game.players[id].status === 'active');
-/* Подменённую улику по виду не отличить: замечают её только по нестыковке с остальными (ABL.swapDetect), а тот, кто подменил, знает точно. */
-const realClues = (game, detect, rand, viewerId) => game.clues.filter((c) => c.revealedRound !== null
-  && !(c.planted && ((viewerId && game.plants.some((x) => x.clueId === c.id && x.by === viewerId)) || rand.chance(detect * ABL.swapDetect))));
+/* Подменённую улику по виду не отличить: замечают её только по нестыковке с остальными (ABL.swapDetect), а тот, кто подменил, знает точно.
+   «Экспертиза» даёт точный ответ по улике (priv.__clue), им делятся голосом, как и «Обыском». */
+const realClues = (game, detect, rand, viewerId, priv) => game.clues.filter((c) => {
+  if (c.revealedRound === null) return false;
+  const known = priv && priv.__clue && priv.__clue[c.id];
+  if (known) return known === 'real';
+  return !(c.planted && ((viewerId && game.plants.some((x) => x.clueId === c.id && x.by === viewerId)) || rand.chance(detect * ABL.swapDetect)));
+});
 
 /** Что известно о теге t у игрока j: 'yes' | 'no' | '?'. priv: личные открытия (карта «Обыск»). */
 function tagStatus(game, j, t, priv) {
@@ -79,7 +84,7 @@ const hiddenTagTraits = (game, j, priv) => {
 function logPost(game, viewerId, opts, rand) {
   const n = game.order.length;
   const q = Math.min(0.8, 1.6 / (n - 1));
-  const clues = realClues(game, opts.detect == null ? 1 : opts.detect, rand, viewerId);
+  const clues = realClues(game, opts.detect == null ? 1 : opts.detect, rand, viewerId, opts.priv);
   const out = {};
   for (const j of alive(game)) {
     if (j === viewerId) continue;
@@ -377,6 +382,14 @@ function useCard(game, id, strat, rand, coopOf, inns, now, S) {
         E.act(game, id, 'card', { type: 'swap', target: argmax(sim, (k) => targets.includes(k)) || targets[0] }, now);
       }
     }
+    // Очная ставка: свести двух невиновных, на которых и так думают
+    if (has('confront')) {
+      const sim = logPost(game, id, { h: 0.3, detect: 1 }, rand);
+      const ok = (k) => pl(game, k).status === 'active' && pl(game, k).role === 'innocent';
+      const a = argmax(sim, ok), b = a && argmax(sim, (k) => k !== a && ok(k));
+      const trait = b && Content.CONFRONT_TRAITS.find((t) => !pl(game, a).revealed[t] || !pl(game, b).revealed[t]);
+      if (trait) E.act(game, id, 'card', { type: 'confront', target: a, target2: b, trait }, now);
+    }
     return;
   }
   // Невиновный подменяет улику только ради личной цели «посадить»
@@ -384,20 +397,23 @@ function useCard(game, id, strat, rand, coopOf, inns, now, S) {
     E.act(game, id, 'card', { type: 'swap', target: p.card.goal.target }, now);
   }
   if (has('lab') && rand.chance(Math.max(0.5, strat.persona.cardUse))) {
-    const priv = privateFacts(game, id);
+    // Проверить самую свежую найденную улику, о которой ещё ничего не известно
     game.lab.priv[id] = game.lab.priv[id] || {};
-    const lp = logPost(game, id, { h: strat.persona.h, detect: strat.persona.dp, clear: priv.clear, lie: priv.lie, priv: game.lab.priv[id] }, rand);
-    const clues = game.clues.filter((c) => c.revealedRound !== null);
-    // Проверить того, на кого больше всего думаешь, по улике, совпадение с которой у него ещё не известно
-    const target = argmax(lp, (k) => pl(game, k).status === 'active' && clues.some((c) => tagStatus(game, k, c.tag, game.lab.priv[id]) === '?'));
-    const clue = target && clues.find((c) => tagStatus(game, target, c.tag, game.lab.priv[id]) === '?');
-    if (clue) {
-      const r = E.act(game, id, 'card', { type: 'lab', target, clueId: clue.id }, now);
-      const note = r.ok && pl(game, id).notes.filter((x) => x.kind === 'lab').pop();
-      if (note) { const lab = game.lab.priv[id].__lab = game.lab.priv[id].__lab || {}; lab[target + '|' + clue.tag] = note.fits ? 'yes' : 'no'; }
-    }
+    const known = game.lab.priv[id].__clue = game.lab.priv[id].__clue || {};
+    const clue = game.clues.filter((c) => c.revealedRound !== null && !known[c.id]).pop();
+    if (clue && E.act(game, id, 'card', { type: 'lab', clueId: clue.id }, now).ok) known[clue.id] = clue.planted ? 'fake' : 'real';
   }
   if (!rand.chance(strat.persona.cardUse)) return;
+  if (has('confront')) {
+    // Очная ставка: два главных подозреваемых раскрывают алиби (или связь с жертвой, мотив)
+    const priv = privateFacts(game, id);
+    const lp = logPost(game, id, { h: strat.persona.h, detect: strat.persona.dp, clear: priv.clear, lie: priv.lie, priv: game.lab.priv[id] ? Object.assign({}, game.lab.priv[id]) : {} }, rand);
+    const ok = (k) => pl(game, k).status === 'active';
+    const a = argmax(lp, ok), b = a && argmax(lp, (k) => k !== a && pl(game, k).status === 'active');
+    const trait = b && Content.CONFRONT_TRAITS.find((t) => !pl(game, a).revealed[t] || !pl(game, b).revealed[t]);
+    if (trait) E.act(game, id, 'card', { type: 'confront', target: a, target2: b, trait }, now);
+    return;
+  }
   const type = (cards.find((c) => c.type === 'testimony') || cards.find((c) => c.type === 'warrant') || {}).type;
   if (!type) return;
   const priv = privateFacts(game, id);

@@ -61,8 +61,7 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
         const m = await p.$('.modal');
         if (!m) break;
         const t = (await p.textContent('.modal h3')) || '';
-        if (/Сплетня/.test(t)) { await p.fill('.modal textarea', 'Кто-то выходил через кухню'); await p.click('.modal [data-ok]'); }
-        else if (await p.$('.modal .opt:not([disabled])')) await p.click('.modal .opt:not([disabled])');
+        if (await p.$('.modal .opt:not([disabled])')) await p.click('.modal .opt:not([disabled])');
         else break;
         await p.waitForTimeout(500);
       }

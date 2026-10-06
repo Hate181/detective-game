@@ -206,13 +206,8 @@
           if (f.id <= lastId) return;
           lastId = f.id; added = true;
           const el = document.createElement('div');
-          if (f.kind === 'gossip') {
-            el.className = 'msg gossip';
-            el.innerHTML = `<span class="who">Сплетня${f.author ? ` · ${esc(nameOf(f.author))}` : ''}</span> ${esc(f.text)}`;
-          } else {
-            el.className = 'sys ' + f.kind;
-            el.textContent = f.text;
-          }
+          el.className = 'sys ' + f.kind;
+          el.textContent = f.text;
           list.appendChild(el);
         });
         if (added && near) list.scrollTop = list.scrollHeight;

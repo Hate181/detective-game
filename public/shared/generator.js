@@ -305,7 +305,7 @@
     // Карты действий
     // Карты действий: «Подмены» у случайных игроков (кто угодно, не только преступники), остальным по кругу.
     // Колода ровно на число игроков, поэтому обе «Подмены» всегда в игре.
-    const base = rng.shuffle(['warrant', 'warrant', 'warrant', 'advocate', 'advocate', 'advocate', 'gossip', 'gossip', 'gossip', 'testimony', 'testimony', 'testimony']);
+    const base = rng.shuffle(['warrant', 'warrant', 'warrant', 'advocate', 'advocate', 'advocate', 'confront', 'confront', 'confront', 'testimony', 'testimony', 'testimony']);
     const swaps = Math.min(Content.SWAPS_IN_DECK, Math.max(0, ids.length - 4));
     const deck = rng.shuffle(Array(swaps).fill('swap').concat(Array.from({ length: ids.length - swaps }, (_, i) => base[i % base.length])));
     const cardType = {};

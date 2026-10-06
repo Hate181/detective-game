@@ -111,9 +111,7 @@
 
     renderNav() {
       const g = this.g, me = this.me;
-      const lastSay = g.feed.filter((f) => f.kind === 'gossip').slice(-1)[0];
       const tab = this.root.dataset.tab;
-      if (lastSay && lastSay.id > this.lastChat) { if (tab !== 'journal' && this.lastChat) this.unread = true; this.lastChat = lastSay.id; }
       if (tab === 'journal') this.unread = false;
       const needs = (me.can.reveal.length > 0) || (me.can.vote && !(g.vote && g.vote.my)) || (g.phase === 'turns' && g.turn && g.turn.speakerId === me.id);
       const dots = this.root.querySelectorAll('#gNav .dot');
@@ -359,7 +357,7 @@
         const k = g.clues[i];
         if (!k) { cl.push(`<div class="clue locked">Улика ${i + 1}<br>${i + 1 <= g.rounds ? `раунд ${i + 1}` : ''}</div>`); continue; }
         const isNew = !this.seenClues.has(k.id) && g.phase !== 'clue'; this.seenClues.add(k.id);
-        cl.push(`<article class="paper clue ${isNew ? 'new' : ''}"><span class="no">Улика ${i + 1}${k.mine ? ' · подменена вами' : k.planted ? ' · подменена' : ''}</span><p>${esc(k.text)}</p><span class="tagname">${esc(k.label)}</span></article>`);
+        cl.push(`<article class="paper clue ${isNew ? 'new' : ''}"><span class="no">Улика ${i + 1}${k.mine ? ' · подменена вами' : k.planted ? ' · подменена' : k.checked === 'fake' ? ' · экспертиза: ложная' : k.checked === 'real' ? ' · экспертиза: правдивая' : ''}</span><p>${esc(k.text)}</p><span class="tagname">${esc(k.label)}</span></article>`);
       }
       setHtml(this.root.querySelector('#gClues'), cl.join(''));
     },
@@ -532,14 +530,21 @@
     async playCard(preType) {
       const me = this.me;
       const list = me.cards.map((c, i) => ({ c, i })).filter((x) => !x.c.used);
-      const type = preType || await UI.choose({ title: 'Карта действия', sub: 'Каждую карту можно сыграть один раз.', items: list.map(({ c }) => ({ id: c.type, title: c.name, sub: PASSIVE.includes(c.type) ? 'Сработает сама, когда вас будут исключать' : c.desc, disabled: PASSIVE.includes(c.type) })) });
+      const type = preType || await UI.choose({ title: 'Карта действия', sub: 'Каждую карту можно сыграть один раз.', items: list.map(({ c }) => ({ id: c.type, title: c.name, sub: c.type === 'advocate' ? 'Сработает сама, когда вас будут исключать' : c.type === 'trail' ? 'Сработает сама, когда вас обыщут' : c.desc, disabled: PASSIVE.includes(c.type) })) });
       if (!type) return;
-      if (type === 'gossip') {
-        const text = await UI.ask({ title: 'Сплетня', sub: 'Утверждение появится в журнале без подписи.', placeholder: 'Например: кто-то выходил через кухню', multiline: true, ok: 'Вбросить' });
-        if (text) this.act('card', { type, text });
+      let ids = this.others();
+      if (type === 'confront') {
+        if (ids.length < 2) return toast('Для очной ставки нужны двое других игроков.', 'err');
+        const a = await this.pickPlayer('Очная ставка: кого сводим?', 'Выберите первого игрока. Оба при всех раскроют алиби, связь с жертвой или мотив.', ids);
+        if (!a) return;
+        const b = await this.pickPlayer('Очная ставка: с кем?', `Второй игрок, которого сводим с ${this.byId[a].name}.`, ids.filter((id) => id !== a));
+        if (!b) return;
+        const traits = Content.CONFRONT_TRAITS.filter((t) => !this.byId[a].revealed[t] || !this.byId[b].revealed[t]);
+        if (!traits.length) return toast('У обоих уже открыты алиби, связь с жертвой и мотив.', 'err');
+        const trait = await UI.choose({ title: 'Что сверяем?', items: traits.map((t) => ({ id: t, title: T[t] })) });
+        if (trait) this.act('card', { type, target: a, target2: b, trait });
         return;
       }
-      let ids = this.others();
       if (type === 'swap') {
         ids = (me.swapTargets || []).filter((id) => id !== me.id);
         if (!ids.length) return toast('Сейчас подменить нечего: оставшиеся улики уже найдены или подменены.', 'err');
@@ -548,12 +553,15 @@
         return;
       }
       if (type === 'lab') {
-        const clues = this.g.clues;
-        if (!clues.length) return toast('Пока нет ни одной найденной улики.', 'err');
-        const clueId = clues.length === 1 ? clues[0].id : await UI.choose({ title: 'Какую улику проверить?', items: clues.map((k, i) => ({ id: k.id, title: `Улика ${this.g.clues.indexOf(k) + 1}: ${k.label}`, sub: k.text })) });
+        const clues = this.g.clues.filter((k) => !k.checked);
+        if (!clues.length) return toast(this.g.clues.length ? 'Все найденные улики вы уже проверили.' : 'Пока нет ни одной найденной улики.', 'err');
+        const clueId = await UI.choose({ title: 'Какую улику проверить?', sub: 'Узнаете только вы: правдивая улика или её подменили.', items: clues.map((k) => ({ id: k.id, title: `Улика ${this.g.clues.indexOf(k) + 1}: ${k.label}`, sub: k.text })) });
         if (!clueId) return;
-        const target = await this.pickPlayer('Кого проверить?', 'Узнаете только вы: подходит эта улика игроку или нет.', ids);
-        if (target) this.act('card', { type, target, clueId });
+        const r = await this.act('card', { type, clueId });
+        if (!r.ok) return;
+        // Ответ приходит вместе с новым состоянием: улика получает пометку, её и показываем.
+        const say = (n) => { const k = this.g.clues.find((x) => x.id === clueId); if (k && k.checked) toast(`Экспертиза: улика ${this.g.clues.indexOf(k) + 1} ${k.checked === 'fake' ? 'ложная, её подменили' : 'правдивая'}.`); else if (n) setTimeout(() => say(n - 1), 250); };
+        say(8);
         return;
       }
       const target = await this.pickPlayer(type === 'warrant' ? 'Кого обыскать?' : 'С кого потребовать показания?', 'Результат ' + (type === 'warrant' ? 'увидите только вы.' : 'увидят все.'), ids);

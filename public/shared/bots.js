@@ -72,7 +72,7 @@
     }
 
     function useCard(game, p, now) {
-      const types = ['warrant', 'testimony', 'gossip', 'swap', 'lab'];
+      const types = ['warrant', 'testimony', 'confront', 'swap', 'lab'];
       const card = p.cards.find((c) => !c.used && types.includes(c.type));
       if (!card) return false;
       const sus = suspicion(game, p);
@@ -86,18 +86,23 @@
         return target ? act(game, p.id, 'card', { type: 'swap', target }, now).ok : false;
       }
       if (card.type === 'lab') {
-        const clues = game.clues.filter((c) => c.revealedRound !== null);
-        const pick = topOf(sus, (id) => !E.shownTags(game.players[id]).length || !(game.players[id].revealed.profession && game.players[id].revealed.habit));
-        if (!clues.length || !pick) return false;
-        const shown = E.shownTags(game.players[pick]);
-        const clue = clues.find((c) => !shown.includes(c.tag)) || clues[0];
-        return act(game, p.id, 'card', { type: 'lab', target: pick, clueId: clue.id }, now).ok;
+        // Проверяет самую свежую найденную улику, которую ещё не проверял.
+        const done = new Set(p.notes.filter((n) => n.kind === 'lab').map((n) => n.clueId));
+        const clue = game.clues.filter((c) => c.revealedRound !== null && !done.has(c.id)).pop();
+        return clue ? act(game, p.id, 'card', { type: 'lab', clueId: clue.id }, now).ok : false;
+      }
+      if (card.type === 'confront') {
+        // Сводит двух самых подозрительных (преступник прикрывает напарника), лучше всего по алиби.
+        const ok = (id) => id !== p.id && game.players[id].status === 'active' && (p.role === 'innocent' || game.players[id].role === 'innocent');
+        const first = topOf(sus, ok), second = first && topOf(sus, (id) => id !== first && ok(id));
+        if (!second) return false;
+        const t1 = game.players[first], t2 = game.players[second];
+        const pool = Content.CONFRONT_TRAITS.filter((x) => !t1.revealed[x] || !t2.revealed[x]);
+        if (!pool.length) return false;
+        return act(game, p.id, 'card', { type: 'confront', target: first, target2: second, trait: pool.includes('alibi') ? 'alibi' : game.rng.pick(pool) }, now).ok;
       }
       if (!top) return false;
       const t = game.players[top];
-      if (card.type === 'gossip') {
-        return act(game, p.id, 'card', { type: 'gossip', text: `Говорят, игрок ${t.name} что-то скрывает.` }, now).ok;
-      }
       const pool = (card.type === 'warrant' ? Content.SEARCHABLE_TRAITS : Content.ASKABLE_TRAITS).filter((x) => !t.revealed[x]);
       if (!pool.length) return false;
       const pref = ['profession', 'habit', 'alibi'].filter((x) => pool.includes(x));

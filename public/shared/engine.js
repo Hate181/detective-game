@@ -13,7 +13,7 @@
   }
 })(typeof self !== 'undefined' ? self : this, function (Content, Generator, RngMod) {
   const { Rng } = RngMod;
-  const { TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CARDS, DURATIONS } = Content;
+  const { TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS, CARDS, DURATIONS } = Content;
 
   const ROUNDS = 4;
   const PH = {
@@ -423,7 +423,7 @@
   /** Резинка баланса: отстающая сторона получает карту, лидер ничего.
       Исключили невиновного в раундах 1–3: «Экспертизу» получает случайный невиновный (за столом на шестерых двое).
       Исключили преступника в раундах 1–3, а второй ещё в игре: он получает «Ложный след». Карта пассивная и тайная:
-      первый «Обыск» опасного пункта или «Экспертиза» против него покажут чистый результат. */
+      первый «Обыск» опасного пункта против него покажет чистый результат. */
   function rubberBand(game, now, kicked, kind) {
     const act = active(game);
     const rules = game.settings.rules;
@@ -716,10 +716,14 @@
       if (!ASKABLE_TRAITS.includes(pl.trait) || t.revealed[pl.trait]) bad('Эта характеристика уже известна.');
       pushFeed(game, now, { kind: 'card', text: `Показания: ${p.name} заставляет ${t.name} раскрыть «${TRAITS[pl.trait]}».` });
       publicReveal(game, now, t, pl.trait, 'testimony');
-    } else if (type === 'gossip') {
-      const text = String(pl.text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
-      if (!text) bad('Напишите, что вбросить.');
-      pushFeed(game, now, { kind: 'gossip', text, author: p.id });
+    } else if (type === 'confront') {
+      // Очная ставка: двое других игроков при всех раскрывают один и тот же пункт показаний.
+      const t2 = pl.target2 ? P(game, pl.target2) : null;
+      if (!t || !t2 || t.id === t2.id || [t, t2].some((x) => x.id === p.id || x.status !== 'active')) bad('Выберите двух других игроков.');
+      if (!CONFRONT_TRAITS.includes(pl.trait)) bad('На очной ставке сверяют алиби, связь с жертвой или мотив.');
+      if (t.revealed[pl.trait] && t2.revealed[pl.trait]) bad('Этот пункт у обоих уже известен.');
+      pushFeed(game, now, { kind: 'card', text: `Очная ставка: ${p.name} сводит ${t.name} и ${t2.name}, оба раскрывают «${TRAITS[pl.trait]}».` });
+      [t, t2].filter((x) => !x.revealed[pl.trait]).forEach((x) => publicReveal(game, now, x, pl.trait, 'confront'));
     } else if (type === 'swap') {
       if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока.');
       const pool = swapPool(game);
@@ -736,15 +740,19 @@
       game.plants.push({ by: p.id, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
       p.notes.push({ t: now, round: game.round, kind: 'swap', targetId: t.id, trait: null, text: `Улика ${no} подменена. Когда её найдут, она укажет на игрока ${t.name}.` });
     } else if (type === 'lab') {
-      if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока.');
+      // Экспертиза: правдивая ли найденная улика или её подменили картой «Подмена улики».
       const clue = game.clues.find((c) => c.id === pl.clueId && c.revealedRound !== null);
       if (!clue) bad('Выберите одну из найденных улик.');
+      if (p.notes.some((n) => n.kind === 'lab' && n.clueId === clue.id)) bad('Эту улику вы уже проверили.');
       const no = game.clues.indexOf(clue) + 1;
-      const fits = t.card.tags.includes(clue.tag) && !useTrail(game, now, t, p, `улику ${no}`);
-      p.notes.push({ t: now, round: game.round, kind: 'lab', targetId: t.id, trait: null, clueId: clue.id, fits, text: `Улика ${no} (${Content.TAGS[clue.tag].label.toLowerCase()}) ${fits ? 'подходит' : 'не подходит'}.` });
+      const fake = !!clue.planted;
+      p.notes.push({ t: now, round: game.round, kind: 'lab', targetId: null, trait: null, clueId: clue.id, fake, text: `Улика ${no} (${Content.TAGS[clue.tag].label.toLowerCase()}) ${fake ? 'ложная: её подменили' : 'правдивая'}.` });
     } else bad('Неизвестная карта.');
     p.cards[i].used = true;
   };
+
+  /** Что игрок узнал об улике «Экспертизой»: 'fake', 'real' или null. */
+  const labVerdict = (me, c) => { const n = me && me.notes.find((x) => x.kind === 'lab' && x.clueId === c.id); return n ? (n.fake ? 'fake' : 'real') : null; };
 
   /** Какие улики ещё можно подменить: не найденные и не подменённые раньше. */
   const swapPool = (game) => game.clues.filter((c) => c.revealedRound === null && !c.planted);
@@ -938,8 +946,8 @@
       players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, nomineeId: ov.nomineeId, voters: ov.voters || [], options: me && ov.nomineeId === me.id ? ov.options : null } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
-      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id)) })),
-      feed: game.feed.slice(-160).map((f) => (f.kind === 'gossip' ? { id: f.id, t: f.t, kind: 'gossip', text: f.text, author: ended ? f.author : undefined } : { id: f.id, t: f.t, kind: f.kind, text: f.text, who: f.who, clueId: f.clueId, trait: f.trait })),
+      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id)), checked: labVerdict(me, c) })),
+      feed: game.feed.slice(-160).map((f) => ({ id: f.id, t: f.t, kind: f.kind, text: f.text, who: f.who, clueId: f.clueId, trait: f.trait })),
       poll: game.poll ? { finalists: game.poll.finalists } : null,
       defense: game.defense ? { order: game.defense.order, idx: game.defense.idx, speaker: game.defense.order[game.defense.idx] || null } : null,
       verdict: game.verdict,

@@ -21,7 +21,7 @@
   /* ---------- Правила ---------- */
   function rules() {
     const cards = C.CARDS || {};
-    const cardList = ['warrant', 'testimony', 'gossip', 'advocate', 'swap', 'lab', 'trail']
+    const cardList = ['warrant', 'testimony', 'confront', 'advocate', 'swap', 'lab', 'trail']
       .filter((k) => cards[k]).map((k) => `<li><b>${esc(cards[k].name)}.</b> ${esc(cards[k].desc)}</li>`).join('');
     return `${docHead('Правила игры', 'Detective Game · 6–10 человек · около 30 минут')}
 <section><h2>Коротко</h2>
