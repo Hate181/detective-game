@@ -42,7 +42,7 @@
         else if (a === 'host') call('room:host', { playerId: b.dataset.id });
         else if (a === 'rename') {
           const v = await UI.ask({ title: 'Как вас называть?', placeholder: 'Имя', ok: 'Сохранить', max: 18 });
-          if (v) { Net.store.set('detective.name', v); call('room:rename', { name: v }); }
+          if (v) { const r = await App.saveProfile({ name: v }); if (!r.ok) toast(r.error || 'Не получилось сохранить.', 'err'); }
         } else if (a === 'admin') call('admin:room', { code: st.code, action: b.dataset.v });
       });
     },
@@ -71,7 +71,7 @@
           <div class="tags">
             ${p.id === st.hostId ? '<span class="badge yellow">ведущий</span>' : p.ready ? '<span class="badge green">готово</span>' : '<span class="badge">ждёт</span>'}
             ${p.isBot ? '<span class="badge blue">бот</span>' : ''}
-            ${p.id === st.realMeId ? '<button class="x" data-a="rename" title="Сменить имя" aria-label="Сменить имя">✎</button>' : ''}
+            ${p.id === st.realMeId && Net.me && Net.me.account ? '<button class="x" data-a="rename" title="Сменить имя" aria-label="Сменить имя">✎</button>' : ''}
             ${isHost && p.id !== st.hostId && !p.isBot ? `<button class="x" data-a="host" data-id="${esc(p.id)}" title="Передать ведение" aria-label="Передать ведение игроку ${esc(p.name)}">★</button>` : ''}
             ${isHost && p.id !== st.hostId ? `<button class="x" data-a="kick" data-id="${esc(p.id)}" title="Убрать из комнаты" aria-label="Убрать ${esc(p.name)}">×</button>` : ''}
           </div>

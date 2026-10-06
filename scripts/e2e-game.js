@@ -21,7 +21,6 @@ const TAG = process.env.TAG || 'g';
   const shot = async (p, name) => { await p.waitForTimeout(500); await p.screenshot({ path: `shots/${TAG}-${name}.png` }); console.log('shot', name); };
   const host = pages[0];
   await host.goto(URL);
-  await host.fill('#nameIn', NAMES[0]);
   await host.click('[data-act="create"]');
   await host.waitForSelector('.lobby');
   const code = await host.evaluate(() => window.App.state.code);
@@ -33,8 +32,7 @@ const TAG = process.env.TAG || 'g';
   for (let i = 1; i < N; i++) {
     const p = pages[i];
     await p.goto(`${URL}/r/${code}`);
-    await p.waitForSelector('#nameIn');
-    await p.fill('#nameIn', NAMES[i]);
+    await p.waitForSelector('#authRow .as-who');
     await p.click('[data-act="join"]');
     await p.waitForSelector('.lobby');
     await p.click('[data-a="ready"]');

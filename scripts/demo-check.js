@@ -11,9 +11,8 @@ const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'detective-preview.h
   page.on('console', (m) => { if (m.type() === 'error' && !/ERR_|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   await page.goto(FILE);
-  await page.waitForSelector('#nameIn');
+  await page.waitForSelector('#authRow .as-who');
   console.log('mode', await page.evaluate(() => Net.mode), 'demoBadge hidden:', await page.evaluate(() => document.getElementById('demoBadge').hidden));
-  await page.fill('#nameIn', 'Андрей');
   await page.click('[data-act="create"]');
   await page.waitForSelector('.lobby');
   await page.waitForFunction(() => window.App.state && window.App.state.players.length >= 6, null, { timeout: 15000 });

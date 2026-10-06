@@ -51,6 +51,7 @@
     else { const m = Cases.mergeBuiltins(cases, load('detective.cases.seen', null) || Cases.LEGACY_IDS, load('detective.cases.textrev', 0), load('detective.cases.packrev', 0)); store.set('detective.cases.seen', JSON.stringify(m.seen)); store.set('detective.cases.textrev', JSON.stringify(m.textRev)); store.set('detective.cases.packrev', JSON.stringify(m.packRev)); if (m.added || m.refreshed || m.retired) store.set('detective.cases', JSON.stringify(cases)); }
     let stats = load('detective.stats', null);
     const hub = new Hub({
+      guestNames: true,
       store: {
         getCases: () => cases, saveCases: () => store.set('detective.cases', JSON.stringify(cases)),
         getStats: () => stats, saveStats: (s) => { stats = s; store.set('detective.stats', JSON.stringify(s)); },
@@ -132,7 +133,7 @@
     };
   }
 
-  /* Аккаунт (Discord/Google) приходит от сервера. В демо входа нет: играют по нику. */
+  /* Аккаунт (Discord/Google) приходит от сервера. В демо входа нет: все играют гостями. */
   Net.loadMe = async () => {
     if (Net.mode === 'server') {
       try {

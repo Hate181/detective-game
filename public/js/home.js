@@ -104,8 +104,7 @@
     <p class="lead">Убийца среди вас. Осталось понять кто.</p>
     <div id="resume"></div>
     <form class="start-card" id="startForm" autocomplete="off">
-      ${code ? `<div class="resume"><span>Вас зовут в комнату <b class="mono">${esc(code)}</b>. Назовите имя и заходите.</span></div>` : ''}
-      <div class="field"><label for="nameIn">Ваше имя</label><input class="input" id="nameIn" maxlength="18" placeholder="Как к вам обращаться" required></div>
+      ${code ? `<div class="resume"><span>Вас зовут в комнату <b class="mono">${esc(code)}</b>.</span></div>` : ''}
       <div class="auth-row" id="authRow"></div>
       ${code
         ? `<button class="btn btn-primary btn-block" type="submit" data-act="join">Войти в комнату</button>
@@ -157,12 +156,7 @@
     mount(root, ctx) {
       document.documentElement.classList.add('js-anim');
       root.innerHTML = html(ctx.route.code || '');
-      const name = (ctx.store.get('detective.name') || '');
-      const nameIn = root.querySelector('#nameIn'), codeIn = root.querySelector('#codeIn');
-      const acc = Net.me && Net.me.account;
-      // Имя из профиля важнее того, что запомнил браузер: его игрок задал сам.
-      nameIn.value = (acc && acc.custom ? acc.name : name) || (acc ? acc.name.slice(0, 18) : '');
-      if (name && !ctx.route.code && codeIn) codeIn.focus(); else if (!name) nameIn.focus();
+      const codeIn = root.querySelector('#codeIn');
       if (codeIn) codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 
       // Закрашенные строки примера карточки
@@ -187,17 +181,18 @@
         put(community, me.community ? `Нет компании? <a href="${esc(me.community)}" target="_blank" rel="noopener noreferrer">${DISCORD} Найдите её в нашем Discord</a>` : '');
         const a = me.account;
         if (a) {
-          put(authRow, `<p class="auth-note">Вы вошли как <b>${esc(a.name)}</b> (${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : 'тест'}). Если вы выпадете из игры, место за вами сохранится на любом устройстве.</p>`);
+          put(authRow, `<p class="as-who">${a.avatar ? `<img class="who-av" src="${esc(a.avatar)}" alt="" referrerpolicy="no-referrer">` : `<span class="who-av" style="background:${esc(App.hue(a.name))}">${esc(UI.initial(a.name))}</span>`}<span>Вы играете как <b>${esc(a.name)}</b>. <a href="#/profile">Личный кабинет</a></span></p>`);
           return;
         }
-        if (Net.mode === 'demo') {
-          put(authRow, `<div class="lbl">Вход</div><div class="auth-btns"><button class="btn" type="button" aria-disabled="true" data-demo-auth>${DISCORD} Discord</button><button class="btn" type="button" aria-disabled="true" data-demo-auth>${GOOGLE} Google</button></div><p class="auth-note">Вход через Discord и Google работает на сервере игры. В демо играем по нику.</p>`);
-          return;
-        }
-        if (!pr.discord && !pr.google && !pr.dev) { put(authRow, ''); return; }
-        put(authRow, `<div class="lbl">Можно войти, а можно и без этого</div><div class="auth-btns">${pr.discord ? `<a class="btn" href="/auth/discord">${DISCORD} Discord</a>` : ''}${pr.google ? `<a class="btn" href="/auth/google">${GOOGLE} Google</a>` : ''}${pr.dev ? '<a class="btn" href="/auth/dev?name=Тест">Тестовый вход</a>' : ''}</div><p class="auth-note">Без входа место за вами держится в этом браузере. Со входом вы вернётесь в игру с любого устройства.</p>`);
+        const g = App.guestName();
+        const demo = Net.mode === 'demo';
+        const btns = demo || (!pr.discord && !pr.google)
+          ? `<button class="btn" type="button" aria-disabled="true" data-off-auth>${DISCORD} Discord</button><button class="btn" type="button" aria-disabled="true" data-off-auth>${GOOGLE} Google</button>`
+          : `${pr.discord ? `<a class="btn" href="/auth/discord">${DISCORD} Discord</a>` : ''}${pr.google ? `<a class="btn" href="/auth/google">${GOOGLE} Google</a>` : ''}`;
+        put(authRow, `<p class="as-who"><span class="who-av" style="background:${esc(App.hue(g))}">Г</span><span>Вы зайдёте как <b>${esc(g)}</b></span></p>
+          <div class="lbl">Войдите, чтобы играть под своим именем</div><div class="auth-btns">${btns}${pr.dev ? '<a class="btn" href="/auth/dev?name=Тест">Тестовый вход</a>' : ''}</div>`);
       };
-      authRow.addEventListener('click', (e) => { if (e.target.closest('[data-demo-auth]')) toast('В демо входа нет, играйте по нику. На сервере работают Discord и Google.'); });
+      authRow.addEventListener('click', (e) => { if (e.target.closest('[data-off-auth]')) toast(Net.mode === 'demo' ? 'В демо входа нет, играйте гостем.' : 'Вход через Discord и Google скоро заработает. Пока можно играть гостем.'); });
       const renderResume = (st) => {
         if (!st) { put(resume, ''); return; }
         const g = st.game;
@@ -219,16 +214,10 @@
         const ok = playing ? await UI.confirmBox({ title: 'Выйти из партии?', sub: 'За вас дальше будет играть автопилот. Вернуться в эту партию не получится, зато можно сразу зайти в другую комнату.', ok: 'Выйти', danger: true }) : true;
         if (ok) Net.call('room:leave');
       });
-      this._renderAuth = renderAuth; this._renderResume = renderResume; this._nameIn = nameIn;
+      this._renderAuth = renderAuth; this._renderResume = renderResume;
       renderAuth();
       renderResume(App.state);
 
-      const need = () => {
-        const v = nameIn.value.trim();
-        if (!v) { nameIn.classList.add('shake'); setTimeout(() => nameIn.classList.remove('shake'), 400); nameIn.focus(); toast('Сначала представьтесь, детектив.', 'err'); return null; }
-        ctx.store.set('detective.name', v);
-        return v;
-      };
       /* Если игрок уже сидит в другой комнате, спрашиваем, остаться там или выйти и продолжить. */
       const guarded = async (event, payload) => {
         let r = await Net.call(event, payload);
@@ -246,11 +235,10 @@
         }
         return r;
       };
-      const create = async () => { const n = need(); if (!n) return; const r = await guarded('room:create', { name: n }); if (!r) return; if (!r.ok) return fail(r); location.hash = `#/room/${r.code}`; };
+      const create = async () => { const r = await guarded('room:create', {}); if (!r) return; if (!r.ok) return fail(r); location.hash = `#/room/${r.code}`; };
       const join = async (code) => {
-        const n = need(); if (!n) return;
         if (!code || code.length < 4) { if (codeIn) { codeIn.classList.add('shake'); setTimeout(() => codeIn.classList.remove('shake'), 400); codeIn.focus(); } toast('Введите код комнаты.', 'err'); return; }
-        const r = await guarded('room:join', { code, name: n });
+        const r = await guarded('room:join', { code });
         if (!r) return;
         if (!r.ok) return fail(r);
         location.hash = `#/room/${r.code}`;
@@ -272,8 +260,6 @@
     },
     update(st) {
       if (this._renderResume) { this._renderResume(st); this._renderAuth(); }
-      const acc = Net.me && Net.me.account;
-      if (this._nameIn && acc && (!this._nameIn.value || (acc.custom && document.activeElement !== this._nameIn))) this._nameIn.value = acc.name.slice(0, 18);
     },
     unmount() { if (this._io) this._io.disconnect(); },
   };

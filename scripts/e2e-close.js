@@ -10,7 +10,6 @@ const URL = process.env.URL || 'http://localhost:3000';
   await page.goto(URL);
   let bad = 0;
   for (let round = 1; round <= 4; round++) {
-    await page.fill('#nameIn', 'Анна');
     await page.click('[data-act="create"]');
     await page.waitForSelector('.lobby');
     await page.click('[data-a="close"]');

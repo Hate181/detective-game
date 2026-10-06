@@ -78,6 +78,7 @@ for (const page of ['rules', 'contacts', 'privacy', 'cookies']) app.get('/' + pa
 const hub = new Hub({
   store,
   maxRooms: Number(process.env.MAX_ROOMS) || 500,
+  guestNames: true,
   onChange: (code, extra) => pushRoom(code, extra),
 });
 
@@ -162,7 +163,7 @@ process.on('SIGTERM', () => { console.log('SIGTERM: завершаю работ�
 server.listen(PORT, () => {
   console.log(`Detective: http://localhost:${PORT}`);
   const a = auth.describe();
-  console.log(a.enabled.length ? `Вход: ${a.enabled.join(', ')}. Адреса возврата, которые нужно внести у провайдера:\n  ${a.redirects.join('\n  ')}` : 'Вход через Discord и Google выключен: не заданы DISCORD_CLIENT_ID/SECRET и GOOGLE_CLIENT_ID/SECRET. Игра работает по нику.');
+  console.log(a.enabled.length ? `Вход: ${a.enabled.join(', ')}. Адреса возврата, которые нужно внести у провайдера:\n  ${a.redirects.join('\n  ')}` : 'Вход через Discord и Google выключен: не заданы DISCORD_CLIENT_ID/SECRET и GOOGLE_CLIENT_ID/SECRET. Все играют гостями.');
   if (a.dev) console.log('ВНИМАНИЕ: AUTH_DEV=1, вход под любым именем открыт. Только для проверок.');
   console.log(`Админка: http://localhost:${PORT}/#/admin  пароль: ${process.env.ADMIN_KEY ? '(из ADMIN_KEY)' : ADMIN_KEY}`);
 });

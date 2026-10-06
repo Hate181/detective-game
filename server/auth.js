@@ -62,7 +62,7 @@ function createAuth({ dataDir, port }) {
   /** Имя для игры: без невидимых символов, 2–18 знаков, без служебных слов. */
   const cleanName = (v) => {
     const n = String(typeof v === 'string' ? v : '').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 18);
-    if (n.length < 2 || /^(__proto__|constructor|prototype)$/i.test(n)) return null;
+    if (n.length < 2 || /^(__proto__|constructor|prototype)$/i.test(n) || /^Гость-\d{5}$/i.test(n)) return null;
     return n;
   };
 

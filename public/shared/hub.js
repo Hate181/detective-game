@@ -25,11 +25,20 @@
     const m = url.match(/^https:\/\/(?:www\.)?(discord\.gg|discord\.com|discordapp\.com)\/([A-Za-z0-9\-_\/.]{2,80})$/i);
     return m ? `https://${m[1].toLowerCase()}/${m[2]}` : null;
   };
+  /** Имя гостя по токену браузера: «Гость-» и пять цифр. Один браузер, один номер, поэтому имя не скачет от игры к игре. */
+  const guestName = (token, salt = 0) => {
+    let h = 2166136261 ^ salt;
+    for (const ch of String(token)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+    return `Гость-${10000 + (h % 90000)}`;
+  };
+  const isGuestName = (n) => /^Гость-\d{5}$/i.test(String(n || '').trim());
   const seasonKey = (d = new Date()) => `${d.getFullYear()}-К${Math.floor(d.getMonth() / 3) + 1}`;
 
   class Hub {
-    constructor({ store, onChange, now, maxRooms } = {}) {
+    constructor({ store, onChange, now, maxRooms, guestNames } = {}) {
       this.store = store;
+      // На сайте имя задаёт аккаунт, а гость получает «Гость-12345». Без этого флага имя приходит от клиента (тесты, старые сценарии).
+      this.guestNames = !!guestNames;
       this.maxRooms = maxRooms || Infinity;
       this.onChange = onChange || (() => {});
       this.now = now || Date.now;
@@ -68,10 +77,23 @@
       if (!p) return false;
       p.token = toToken;
       const ident = this.identities.get(toToken);
-      if (ident) { p.account = ident.id; p.provider = ident.provider; }
+      if (ident) {
+        p.account = ident.id; p.provider = ident.provider;
+        // В лобби бывший гость сразу садится под именем аккаунта, если оно свободно.
+        if (this.guestNames && from.status === 'lobby' && !from.players.some((x) => !x.left && x !== p && x.name.toLowerCase() === String(ident.name).toLowerCase())) p.name = ident.name;
+      }
       this.tokens.delete(fromToken); this.tokens.set(toToken, from.code);
       this.notify(from);
       return true;
+    }
+    /** Под каким именем игрок сядет за стол: имя аккаунта или «Гость-12345», если он не вошёл. */
+    _seatName(room, token, name) {
+      if (!this.guestNames) return name;
+      const ident = this.identities.get(token);
+      if (ident) return ident.name;
+      const busy = new Set(room.players.filter((p) => !p.left && p.token !== token).map((p) => p.name.toLowerCase()));
+      for (let salt = 0; salt < 50; salt++) { const n = guestName(token, salt); if (!busy.has(n.toLowerCase())) return n; }
+      return guestName(token + this._id(6));
     }
     setAdmin(token, on) { if (on) this.admins.add(token); else this.admins.delete(token); }
     _cleanName(name) {
@@ -135,7 +157,8 @@
         settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
-      const host = this._addPlayer(room, token, name);
+      let host;
+      try { host = this._addPlayer(room, token, this._seatName(room, token, name)); } catch (e) { this.rooms.delete(room.code); throw e; }
       room.hostId = host.id;
       this._log(room, `${host.name} открыл дело и ждёт напарников.`);
       this.notify(room);
@@ -145,10 +168,10 @@
     ev_room_join(token, { code, name, leave }) {
       const room = this._room(code);
       const had = room.players.find((x) => x.token === token && !x.left);
-      if (had) { had.connected = true; if (name) had.name = this._cleanName(name); this.tokens.set(token, room.code); this.notify(room); return { code: room.code }; }
+      if (had) { had.connected = true; if (name && !this.guestNames) had.name = this._cleanName(name); this.tokens.set(token, room.code); this.notify(room); return { code: room.code }; }
       if (room.status !== 'lobby') fail('in_progress', 'Партия уже идёт. Дождитесь следующего дела.');
       this._guardOther(token, room.code, leave);
-      const pl = this._addPlayer(room, token, name);
+      const pl = this._addPlayer(room, token, this._seatName(room, token, name));
       this._log(room, `${pl.name} входит в комнату.`);
       this._touch(room); this.notify(room);
       return { code: room.code };
@@ -259,8 +282,13 @@
       if (room.status === 'lobby') { p.ready = !p.ready; this.notify(room); }
     }
     ev_room_rename(token, { name }) {
-      const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
+      const ident = this.identities.get(token);
+      if (this.guestNames && !ident) fail('need_login', 'Своё имя можно задать после входа через Discord или Google.');
       const clean = this._cleanName(name);
+      if (this.guestNames && isGuestName(clean)) fail('name', 'Имена вида «Гость-12345» достаются только гостям.');
+      if (ident) ident.name = clean;
+      // За столом имя меняется только до начала партии, в идущей игре останется прежнее.
+      const room = this.roomOf(token); if (!room || room.status !== 'lobby') return { name: clean };
       if (room.players.some((p) => !p.left && p.token !== token && p.name.toLowerCase() === clean.toLowerCase())) fail('name_taken', 'Это имя в комнате уже занято.');
       this._me(room, token).name = clean;
       this.notify(room);
@@ -376,6 +404,16 @@
     }
 
     ev_stats_get() { return this.statsView(); }
+    /** Личный кабинет: свои итоги за всё время, место в сезоне и последние партии. Гостю только имя. */
+    ev_stats_me(token) {
+      const ident = this.identities.get(token);
+      if (!ident) return { guest: true, name: guestName(token) };
+      const s = this._stats();
+      const c = s.career[ident.id] || { games: 0, wins: 0, killer: 0, accomplice: 0, innocent: 0, points: 0, medals: 0, history: [] };
+      const season = s.players[ident.id];
+      const rank = season ? Object.values(s.players).filter((e) => e.points > season.points).length + 1 : null;
+      return { guest: false, name: ident.name, career: c, season: { key: s.season, rank, total: Object.keys(s.players).length, games: season ? season.games : 0, points: season ? season.points : 0 } };
+    }
 
     /* ---------- Тик: время партий, автопилот, статистика ---------- */
     tick(now = this.now()) {
@@ -427,6 +465,8 @@
       if (s.season !== key) { s.season = key; s.players = {}; }
       // Ключи игроков задают сами игроки: объект без прототипа, чтобы имя «__proto__» ничего не сломало.
       if (Object.getPrototypeOf(s.players || {}) !== null) s.players = Object.assign(Object.create(null), s.players);
+      // Личный кабинет: итоги за всё время по аккаунтам, сезон их не обнуляет.
+      if (!s.career || Object.getPrototypeOf(s.career) !== null) s.career = Object.assign(Object.create(null), s.career || {});
       return s;
     }
     _recordGame(room) {
@@ -443,6 +483,15 @@
         if (gp.role === 'innocent') { e.innocentGames += 1; if (r.winner === 'innocent') e.solved += 1; }
         e.points += r.score[lp.id] || 0;
         e.medals += r.awards.filter((a) => a.playerId === lp.id).length;
+        if (lp.account) {
+          const c = s.career[lp.account] = s.career[lp.account] || { games: 0, wins: 0, killer: 0, accomplice: 0, innocent: 0, points: 0, medals: 0, history: [] };
+          const won = (gp.role === 'innocent' ? 'innocent' : 'killer') === r.winner;
+          const medals = r.awards.filter((a) => a.playerId === lp.id).map((a) => a.title);
+          c.games += 1; c.wins += won ? 1 : 0; c[gp.role] = (c[gp.role] || 0) + 1;
+          c.points += r.score[lp.id] || 0; c.medals += medals.length;
+          c.history.unshift({ t: this.now(), case: g.caseData.title, role: gp.role, won, points: r.score[lp.id] || 0, medals, players: g.order.length });
+          c.history.length = Math.min(c.history.length, 20);
+        }
       });
       room.killerCounts[g.killerId] = (room.killerCounts[g.killerId] || 0) + 1;
       this.store.saveStats(s);
@@ -632,5 +681,5 @@
     }
   }
 
-  return { Hub, HubError, normalizeCode, MIN_PLAYERS, MAX_PLAYERS, CODE_LENGTH, cleanDiscord };
+  return { Hub, HubError, normalizeCode, MIN_PLAYERS, MAX_PLAYERS, CODE_LENGTH, cleanDiscord, guestName };
 });

@@ -29,13 +29,13 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check((await pages[4].textContent('#acct')).includes('Мира'), 'после входа в шапке видно имя аккаунта');
 
   const host = pages[0];
-  await host.goto(URL); await host.fill('#nameIn', NAMES[0]); await host.click('[data-act="create"]');
+  await host.goto(URL); await host.click('[data-act="create"]');
   await host.waitForSelector('.lobby');
   const code = await host.evaluate(() => window.App.state.code);
   for (let i = 1; i < 6; i++) {
     const p = pages[i];
-    await p.goto(`${URL}/r/${code}`); await p.waitForSelector('#nameIn');
-    await p.fill('#nameIn', NAMES[i]); await p.click('[data-act="join"]');
+    await p.goto(`${URL}/r/${code}`); await p.waitForSelector('#authRow .as-who');
+    await p.click('[data-act="join"]');
     try { await p.waitForSelector('.lobby', { timeout: 8000 }); } catch (e) { console.log('нет лобби у', i, await p.evaluate(() => ({ h: location.hash, k: window.App && App.key, t: document.getElementById('toasts').innerText, m: document.querySelector('.modal') ? document.querySelector('.modal').innerText : '' }))); await p.screenshot({ path: `shots/${TAG}-fail-${i}.png` }); throw e; }
     await p.click('[data-a="ready"]');
   }
@@ -52,13 +52,14 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check((await p1.textContent('.resume-card h3')).includes('Вы в игре'), 'на главной виден блок «Вы в игре»');
   check((await p1.textContent('.resume-card')).includes(code), 'в блоке указана комната');
   await p1.waitForTimeout(600);
-  check(await host.evaluate((n) => window.App.state.players.find((x) => x.name === n).away, NAMES[1]), 'для остальных игрок «отошёл»');
+  const p1name = await p1.evaluate(() => App.guestName());
+  check(await host.evaluate((n) => window.App.state.players.find((x) => x.name === n).away, p1name), 'для остальных игрок «отошёл»');
   await p1.screenshot({ path: `shots/${TAG}-resume.png` });
   await p1.click('[data-resume="back"]');
   await p1.waitForSelector('#game');
   check((await me(p1)) === id1, 'после «Переподключиться» тот же игрок');
   await p1.waitForTimeout(600);
-  check(!(await host.evaluate((n) => window.App.state.players.find((x) => x.name === n).away, NAMES[1])), 'отметка «отошёл» снялась');
+  check(!(await host.evaluate((n) => window.App.state.players.find((x) => x.name === n).away, p1name)), 'отметка «отошёл» снялась');
 
   // 2. Вышел на главную через ×, при попытке открыть новую комнату игру не бросают
   const p2 = pages[2];
@@ -69,7 +70,7 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   await p2.screenshot({ path: `shots/${TAG}-quit-menu.png` });
   await p2.click('.modal .opt[data-i="0"]');
   await p2.waitForSelector('.resume-card');
-  await p2.fill('#nameIn', NAMES[2]); await p2.click('[data-act="create"]');
+  await p2.click('[data-act="create"]');
   await p2.waitForSelector('.modal .opt');
   check((await p2.textContent('.modal h3')).includes(code), 'при попытке открыть вторую комнату предложено вернуться');
   await p2.waitForTimeout(500);
@@ -110,7 +111,7 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   await p5.click('.modal [data-ok]');
   await p5.waitForSelector('#startForm');
   check((await p5.$('.resume-card')) === null, 'после выхода блока «Вы в игре» нет');
-  await p5.fill('#nameIn', NAMES[5]); await p5.click('[data-act="create"]');
+  await p5.click('[data-act="create"]');
   await p5.waitForSelector('.lobby');
   const code2 = await p5.evaluate(() => window.App.state.code);
   check(code2 && code2 !== code, 'после выхода можно открыть новую комнату');

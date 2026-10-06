@@ -14,6 +14,7 @@
     const m = h.match(/^\/room\/([A-Za-z0-9]+)/);
     if (h.startsWith('/admin')) return { name: 'admin' };
     if (m) return { name: 'room', code: m[1].toUpperCase() };
+    if (/^\/(profile|me)\b/.test(h)) return { name: 'profile' };
     const pg = h.match(/^\/(rules|contacts|privacy|cookies)\b/);
     if (pg) return { name: 'page', page: pg[1] };
     return { name: 'home' };
@@ -24,6 +25,7 @@
     const st = App.state;
     if (App.route.name === 'admin') return 'admin';
     if (App.route.name === 'page') return 'page';
+    if (App.route.name === 'profile') return 'profile';
     if (st && App.route.name === 'room' && App.route.code === st.code) {
       if (st.status === 'lobby' || !st.game) return 'lobby';
       return st.game.phase === 'ended' ? 'end' : 'game';
@@ -44,54 +46,35 @@
     Net.call('room:away', { away: want }).then((r) => { if (!r.ok) App.awaySent = null; });
   }
 
+  /* Шапка: вошедший видит себя и попадает в кабинет, гость видит своё имя и кнопку «Войти». */
   function renderAccount() {
     const el = document.getElementById('acct');
     if (!el) return;
     const a = Net.me && Net.me.account;
-    if (!a) { el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false;
-    el.innerHTML = `<button type="button" class="acct-open" data-profile title="Профиль"><span class="acct-av" style="background:hsl(${[...a.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 45% 38%)">${UI.esc(UI.initial(a.name))}</span><span class="acct-name">${UI.esc(a.name)}</span><span class="acct-prov">${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : 'тест'}</span></button>`;
+    if (!a) {
+      const g = App.guestName();
+      el.innerHTML = `<a class="acct-open acct-guest" href="#/profile" title="Личный кабинет"><span class="acct-av" style="background:${UI.esc(App.hue(g))}">Г</span><span class="acct-name">${UI.esc(g)}</span><span class="acct-prov">войти</span></a>`;
+      return;
+    }
+    const av = a.avatar ? `<img class="acct-av" src="${UI.esc(a.avatar)}" alt="" referrerpolicy="no-referrer">` : `<span class="acct-av" style="background:${UI.esc(App.hue(a.name))}">${UI.esc(UI.initial(a.name))}</span>`;
+    el.innerHTML = `<a class="acct-open" href="#/profile" title="Личный кабинет">${av}<span class="acct-name">${UI.esc(a.name)}</span><span class="acct-prov">${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : 'тест'}</span></a>`;
   }
+  App.hue = (name) => `hsl(${[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 45% 38%)`;
+  /** Имя, под которым гость сядет за стол. Сервер считает его так же, по токену браузера. */
+  App.guestName = () => window.DetectiveHub.guestName(Net.token);
 
-  /* Профиль: своё имя для игры, даже после входа через Discord или Google, и выход из аккаунта. */
-  function openProfile() {
-    const a = Net.me && Net.me.account;
-    if (!a) return;
-    const prov = a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : 'тестовый вход';
-    UI.modal((box, close) => {
-      box.innerHTML = `<h3>Профиль</h3>
-        <p class="sub">Вы вошли через ${UI.esc(prov)}${a.providerName ? ` как ${UI.esc(a.providerName)}` : ''}. Имя для игры можно поменять: его увидят за столом и в таблице сезона, на всех устройствах.</p>
-        <div class="field"><label for="profName">Имя в игре</label><input class="input" id="profName" maxlength="18" value="${UI.esc(a.name)}"></div>
-        ${a.custom && a.providerName ? `<p class="hint"><button type="button" class="linkish" data-reset>Вернуть имя из ${UI.esc(prov)}</button></p>` : ''}
-        <div class="row"><button class="btn btn-ghost" data-logout>Выйти из аккаунта</button><button class="btn btn-primary" data-save>Сохранить</button></div>`;
-      const inp = box.querySelector('#profName');
-      const send = async (body) => {
-        let r;
-        try { r = await (await fetch('/api/profile', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json(); }
-        catch (e) { r = { ok: false, error: 'Нет связи с сервером.' }; }
-        if (!r.ok) { toast(r.error || 'Не получилось сохранить.', 'err'); inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 400); return; }
-        Net.me.account.name = r.name; Net.me.account.custom = !body.reset;
-        Net.store.set('detective.name', r.name);
-        // Если игрок сидит в лобби, имя меняется и там.
-        if (App.state && App.state.status === 'lobby') Net.call('room:rename', { name: r.name });
-        close(); toast('Имя сохранено.');
-        renderAccount(); render();
-        const homeName = document.getElementById('nameIn'); if (homeName) homeName.value = r.name;
-      };
-      box.addEventListener('click', async (e) => {
-        if (e.target.closest('[data-save]')) send({ name: inp.value });
-        else if (e.target.closest('[data-reset]')) send({ reset: true });
-        else if (e.target.closest('[data-logout]')) {
-          close();
-          const inRoom = !!App.state;
-          const ok = await UI.confirmBox({ title: 'Выйти из аккаунта?', sub: inRoom ? 'Вы сидите в комнате. Выйдя из аккаунта, вы потеряете это место: в этом браузере игра продолжится уже без привязки к аккаунту.' : 'Дальше можно играть под ником без входа.', ok: 'Выйти' });
-          if (ok) Net.logout();
-        }
-      });
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send({ name: inp.value }); } });
-    });
-  }
-  document.getElementById('acct').addEventListener('click', (e) => { if (e.target.closest('[data-profile]')) openProfile(); });
+  /** Сохранить имя в профиле аккаунта ({name} или {reset:true}). Если игрок в лобби, имя меняется и там. */
+  App.saveProfile = async (body) => {
+    let r;
+    try { r = await (await fetch('/api/profile', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json(); }
+    catch (e) { r = { ok: false, error: 'Нет связи с сервером.' }; }
+    if (!r.ok) return r;
+    Net.me.account.name = r.name; Net.me.account.custom = !body.reset;
+    await Net.call('room:rename', { name: r.name });
+    renderAccount(); render();
+    return r;
+  };
 
   function render() {
     App.route = parseRoute();
