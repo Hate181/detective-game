@@ -91,7 +91,7 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     const browser = await chromium.launch({ executablePath: CHROME });
     const page = await browser.newPage();
     await page.goto(URL + '/healthz');
-    await page.addScriptTag({ url: URL + '/socket.io/socket.io.js' });
+    await page.addScriptTag({ url: URL + '/vendor/socket.io.min.js' });
     const result = await page.evaluate(async () => {
       const connect = (token) => new Promise((resolve) => {
         const s = window.io({ auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
@@ -135,6 +135,11 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     check(result.joins[29].code !== 'rate' && result.joins[31].code === 'rate', 'перебор кодов комнат закрывается после 30 промахов');
     check(result.rate > 0, `лимит действий срабатывает (${result.rate} из 60 отклонено)`);
     await browser.close();
+    const gz = await fetch(URL + '/shared/case-content.js', { headers: { 'accept-encoding': 'gzip' } });
+    check(gz.headers.get('content-encoding') === 'gzip', 'файлы отдаются сжатыми');
+    const flood = [];
+    for (let i = 0; i < 620; i++) flood.push((await fetch(URL + '/robots.txt')).status);
+    check(flood.includes(429) && (await fetch(URL + '/healthz')).status === 200, `лимит запросов с одного адреса срабатывает (${flood.filter((x) => x === 429).length} отклонено), проверка здоровья работает`);
     check(!/uncaught|TypeError/i.test(log), 'в логе сервера нет падений');
   } catch (e) {
     fails++; console.log('ПРОВАЛ:', e.message);

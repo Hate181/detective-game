@@ -9,10 +9,13 @@
     "preview": "node scripts/build-preview.js",
     "test": "node scripts/test-generator.js && node scripts/test-engine.js && node scripts/test-hub.js && node scripts/test-presence.js && node scripts/test-rules.js && node scripts/test-gang.js && node scripts/test-pack.js && node scripts/test-cards.js && node scripts/test-security.js && node scripts/test-accounts.js && node scripts/test-email-auth.js"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "compression": "^1.8.2",
     "express": "^5.2.1",
     "socket.io": "^4.8.4"
   },

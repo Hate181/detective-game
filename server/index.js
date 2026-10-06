@@ -59,18 +59,25 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', security.PROXY_HOPS);
 app.use(security.headers);
+app.use(security.httpLimit);
+// Сжатие: файлы игры уходят в 3–5 раз меньше, а исходящий трафик хостинг считает в деньгах.
+app.use(require('compression')());
 app.use(['/auth', '/api'], security.postLimit);
 const auth = createAuth({ dataDir: DATA_DIR, port: PORT });
 auth.mount(app);
 const server = http.createServer(app);
 // Сообщения игры маленькие: 32 КБ с запасом хватает и редактору дел в админке.
-const io = new Server(server, { cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingTimeout: 20000 });
+// Клиент сокетов отдаём сами (/vendor/socket.io.min.js): так он сжат и попадает под общий лимит запросов.
+// perMessageDeflate: состояние комнаты (около 12 КБ) уходит сжатым примерно до 5 КБ.
+const io = new Server(server, { serveClient: false, perMessageDeflate: { threshold: 1024 }, cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingTimeout: 20000 });
 
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: hub.rooms.size, sockets: io.engine.clientsCount, uptime: Math.round(process.uptime()) }));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   extensions: ['html'],
   setHeaders: (res, file) => { if (file.endsWith('.html')) res.set('Cache-Control', 'no-cache'); },
 }));
+const SOCKET_CLIENT = path.join(path.dirname(require.resolve('socket.io')), '..', 'client-dist', 'socket.io.min.js');
+app.get('/vendor/socket.io.min.js', (req, res) => res.sendFile(SOCKET_CLIENT));
 app.get('/api/cases', (req, res) => res.json(cases.filter((c) => c.enabled !== false)));
 app.get('/r/:code', (req, res) => res.redirect(`/#/room/${normalizeCode(req.params.code)}`));
 // Короткие адреса для правил и документов: открываются внутри приложения.
@@ -87,14 +94,25 @@ const hub = new Hub({
 const socketsOf = new Map();
 const emitTo = (token, ev, data) => { const set = socketsOf.get(token); if (set) set.forEach((s) => s.emit(ev, data)); };
 
+// Состояние комнаты рассылаем не чаще раза в 100 мс: частые действия склеиваются в одну рассылку,
+// и спамом нельзя раздуть исходящий трафик (он платный) в десятки раз.
+const PUSH_GAP = 100;
+const lastPush = new Map(), pendingPush = new Map();
 function pushRoom(code, extra = {}) {
   if (extra.kicked) emitTo(extra.kicked, 'room:kicked', {});
   if (extra.closed && extra.tokens) extra.tokens.forEach((t) => emitTo(t, extra.by && extra.by === t ? 'room:left' : 'room:kicked', extra.by && extra.by === t ? {} : { closed: true }));
+  if (pendingPush.has(code)) return;
+  const wait = PUSH_GAP - (Date.now() - (lastPush.get(code) || 0));
+  if (wait <= 0) return sendRoom(code);
+  pendingPush.set(code, setTimeout(() => { pendingPush.delete(code); sendRoom(code); }, wait));
+}
+function sendRoom(code) {
   const room = hub.rooms.get(code);
-  if (!room) return;
+  if (!room) { lastPush.delete(code); return; }
+  lastPush.set(code, Date.now());
   const tokens = new Set(room.players.map((p) => p.token));
   for (const t of tokens) {
-    if (!socketsOf.has(t) || t === extra.kicked) continue;
+    if (!socketsOf.has(t)) continue;
     const r = hub.roomOf(t);
     if (!r || r.code !== code) continue;
     const v = hub.view(t);
@@ -134,7 +152,7 @@ io.on('connection', (socket) => {
   });
 
   function onEvent(event, payload, ack) {
-    if (!limit()) {
+    if (!limit() || !security.ipEventOk(security.ipOf(socket))) {
       if (limit.strikes() > 50) socket.disconnect(true);
       return ack({ ok: false, code: 'rate', error: 'Слишком много действий подряд. Подождите секунду.' });
     }

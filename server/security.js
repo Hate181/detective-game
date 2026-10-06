@@ -82,6 +82,19 @@ function sameOrigin(origin, host) {
 // Сокет открывается с куками входа, поэтому чужой сайт не должен его открыть от имени игрока.
 const allowSocket = (req, cb) => cb(null, sameOrigin(req.headers.origin, req.headers.host));
 
+/** Все запросы к сайту с одного IP: 600 за 10 минут. Страница игры это около 20 файлов,
+    так что компании за одним роутером хватает с запасом, а выкачать гигабайты трафика (за него платим) не выйдет. */
+const HTTP_WINDOW = 10 * 60e3, HTTP_MAX = Number(process.env.HTTP_PER_IP) || 600;
+const hits = new Map();
+function httpLimit(req, res, next) {
+  if (req.path === '/healthz') return next();
+  const now = Date.now(), ip = req.ip || 'unknown';
+  const r = hits.get(ip);
+  if (!r || now - r.first > HTTP_WINDOW) hits.set(ip, { n: 1, first: now });
+  else if (++r.n > HTTP_MAX) { res.set('Retry-After', '600'); return res.status(429).type('text/plain; charset=utf-8').send('Слишком много запросов. Попробуйте через 10 минут.'); }
+  next();
+}
+
 /** Лимит на запросы входа, регистрации и профиля: 30 в минуту с одного IP. */
 const posts = new Map();
 function postLimit(req, res, next) {
@@ -124,6 +137,16 @@ function joinMissed(ip) {
   if (!m || now - m.first > ROOM_WINDOW) joinMiss.set(ip, { n: 1, first: now }); else m.n++;
 }
 
+// Действия со всех сокетов одного IP вместе: 30 в секунду, всплеск до 90. Компании из 10 человек хватает,
+// а 30 вкладок одного человека не умножат лимит в 30 раз.
+const ipBuckets = new Map();
+function ipEventOk(ip) {
+  let b = ipBuckets.get(ip);
+  if (!b) { b = eventLimiter(30, 90); ipBuckets.set(ip, b); }
+  b.seen = Date.now();
+  return b();
+}
+
 // Пароль админки: 5 неверных попыток с одного IP, и вход закрыт на 15 минут.
 const adminFails = new Map();
 const ADMIN_WINDOW = 15 * 60 * 1000, ADMIN_MAX = 5;
@@ -143,9 +166,11 @@ function adminFailed(ip) {
 setInterval(() => {
   const now = Date.now();
   for (const [k, r] of posts) if (now - r.first > 60e3) posts.delete(k);
+  for (const [k, r] of hits) if (now - r.first > HTTP_WINDOW) hits.delete(k);
+  for (const [k, b] of ipBuckets) if (now - b.seen > 60e3) ipBuckets.delete(k);
   for (const [k, r] of adminFails) if (now - r.first > ADMIN_WINDOW) adminFails.delete(k);
   for (const [k, r] of joinMiss) if (now - r.first > ROOM_WINDOW) joinMiss.delete(k);
   for (const [k, r] of roomsByIp) if (r.codes.every((c) => now - c.t > 6 * 3600e3)) roomsByIp.delete(k);
 }, 5 * 60e3).unref();
 
-module.exports = { roomGuard, roomCreated, joinMissed, sameOrigin, allowSocket, postLimit, PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };
+module.exports = { ipEventOk, httpLimit, roomGuard, roomCreated, joinMissed, sameOrigin, allowSocket, postLimit, PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };

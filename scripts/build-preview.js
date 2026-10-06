@@ -5,7 +5,7 @@ const pub = path.join(__dirname, '..', 'public');
 const read = (p) => fs.readFileSync(path.join(pub, p), 'utf8');
 const html = read('index.html');
 const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>'))
-  .replace('<script src="/socket.io/socket.io.js"></script>\n', '')
+  .replace('<script src="/vendor/socket.io.min.js"></script>\n', '')
   .replace(/<script src="([^"]+)"><\/script>/g, (_, src) => `<script>\n${read(src).replace(/<\/script/gi, '<\\/script')}\n</script>`);
 const head = html.slice(html.indexOf('<title>'), html.indexOf('</head>'))
   .replace(/<meta name="viewport"[^>]*>\n?/, '')
