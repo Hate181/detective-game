@@ -82,12 +82,13 @@ function sameOrigin(origin, host) {
 // Сокет открывается с куками входа, поэтому чужой сайт не должен его открыть от имени игрока.
 const allowSocket = (req, cb) => cb(null, sameOrigin(req.headers.origin, req.headers.host));
 
-/** Старый адрес *.up.railway.app переводит на свой домен из PUBLIC_URL: одна ссылка, одни куки входа. */
+/** Старый адрес *.up.railway.app и www. переводят на свой домен из PUBLIC_URL: одна ссылка, одни куки входа. */
 function canonical(req, res, next) {
   const host = req.hostname || '';
-  if (!PUBLIC_URL || req.path === '/healthz' || !/\.up\.railway\.app$/.test(host)) return next();
+  if (!PUBLIC_URL || req.path === '/healthz') return next();
   const target = new URL(PUBLIC_URL);
-  if (target.hostname === host || !['GET', 'HEAD'].includes(req.method)) return next();
+  const alias = /\.up\.railway\.app$/.test(host) || host === 'www.' + target.hostname;
+  if (!alias || target.hostname === host || !['GET', 'HEAD'].includes(req.method)) return next();
   res.redirect(301, target.origin + req.originalUrl);
 }
 
