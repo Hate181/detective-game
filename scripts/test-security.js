@@ -34,6 +34,15 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     try { r = Engine.act(game, 'p0', a, {}, 2000); } catch (e) { r = { threw: e.message }; }
     check(r && r.ok === false && !r.threw, `действие «${a}» отклоняется без исключения`);
   }
+  // В обычном режиме ключи совпадений с уликами не уходят в сеть
+  for (const hints of ['normal', 'light']) {
+    const g = Engine.createGame({ caseData: Cases.CASES[0], players, settings: { hints }, seed: 5, now: 1000 });
+    g.players.p1.revealed.profession = true; g.players.p1.revealed.habit = true;
+    const v = Engine.view(g, 'p0');
+    const rev = v.players.find((x) => x.id === 'p1').revealed;
+    const has = !!(rev.profession && rev.profession.tags) || !!(rev.habit && rev.habit.tags);
+    check(hints === 'light' ? has : !has && rev.profession && rev.profession.text, `режим «${hints}»: ключи совпадений ${hints === 'light' ? 'видны' : 'скрыты'}`);
+  }
   const hub2 = new Hub({ store: { getCases: () => Cases.CASES, saveCases() {}, getStats: () => null, saveStats() {} }, maxRooms: 2 });
   hub2.handle('tok-1111111111111111', 'room:create', { name: 'А' });
   hub2.handle('tok-2222222222222222', 'room:create', { name: 'Б' });
@@ -62,6 +71,23 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     const lo = await fetch(URL + '/auth/logout', { method: 'POST', headers: { origin: 'https://evil.example' } });
     check(lo.status === 403, 'чужой сайт не может разлогинить игрока');
 
+    // Чужой сайт не может открыть сокет с куками игрока.
+    const poll = (origin) => fetch(URL + '/socket.io/?EIO=4&transport=polling', { headers: origin ? { origin } : {} }).then((r) => r.status);
+    check(await poll('https://evil.example') !== 200, 'сокет с чужого сайта не открывается');
+    check(await poll(URL) === 200 && await poll(null) === 200, 'сокет со своего сайта открывается');
+    const upgrade = (origin) => new Promise((resolve) => {
+      const req = require('http').request({ host: 'localhost', port: PORT, path: '/socket.io/?EIO=4&transport=websocket', headers: { connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==', origin } });
+      req.on('upgrade', (res, sock) => { sock.destroy(); resolve(101); });
+      req.on('response', (res) => resolve(res.statusCode));
+      req.on('error', () => resolve(0));
+      req.end();
+    });
+    check(await upgrade('https://evil.example') !== 101, 'websocket с чужого сайта не открывается');
+    check(await upgrade(URL) === 101, 'websocket со своего сайта открывается');
+    // Волна запросов на вход: лимит по адресу, сервер не тратит память на сотни хэшей сразу.
+    const wave = await Promise.all(Array.from({ length: 40 }, (_, i) => fetch(URL + '/auth/email/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `x${i}@example.com`, password: 'password' + i }) }).then((r) => r.status)));
+    check(wave.filter((st) => st === 503 || st === 429).length >= 30, `волна входов гасится (${wave.filter((st) => st === 401).length} проверено из 40)`);
+
     const browser = await chromium.launch({ executablePath: CHROME });
     const page = await browser.newPage();
     await page.goto(URL + '/healthz');
@@ -85,6 +111,14 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
       for (let i = 0; i < 7; i++) tries.push((await call(good.s, 'admin:auth', { key: 'guess' + i })).error);
       out.lockedRight = await call(good.s, 'admin:auth', { key: 'correct-horse-battery' });
       out.tries = tries;
+      out.weirdKey = await call(good.s, 'admin:auth', { key: { toString: 1 } });
+      // Флуд комнатами с одного адреса
+      out.rooms = [];
+      for (let i = 0; i < 5; i++) { const c = await connect('room' + i + 'x'.repeat(20)); out.rooms.push(await call(c.s, 'room:create', {})); c.s.disconnect(); }
+      // Перебор кодов комнат
+      const guess = await connect('g'.repeat(32));
+      out.joins = [];
+      for (let i = 0; i < 32; i++) out.joins.push(await call(guess.s, 'room:join', { code: 'ZZZ' + String(i).padStart(2, '0') }));
       const spam = await connect('b'.repeat(32));
       const res = await Promise.all(Array.from({ length: 60 }, () => call(spam.s, 'stats:get', {})));
       out.rate = res.filter((r) => r && r.code === 'rate').length;
@@ -96,13 +130,16 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
     check(result.badPayload && result.badPayload.ok === false, 'данные не того типа отклоняются');
     check(result.badEvent && result.badEvent.ok === false, 'служебные имена команд отклоняются');
     check(/Слишком много попыток/.test(result.tries[6] || '') && result.lockedRight.ok === false, 'после 5 неверных паролей вход в админку закрыт даже с верным');
+    check(result.weirdKey && result.weirdKey.ok === false && !result.weirdKey.timeout, 'кривой пароль админки не роняет обработчик');
+    check(result.rooms.slice(0, 3).every((r) => r.ok) && result.rooms.slice(3).every((r) => !r.ok && r.code === 'rate'), `с одного адреса не больше 3 комнат (${result.rooms.map((r) => r.ok ? 'ок' : r.code).join(', ')})`);
+    check(result.joins[29].code !== 'rate' && result.joins[31].code === 'rate', 'перебор кодов комнат закрывается после 30 промахов');
     check(result.rate > 0, `лимит действий срабатывает (${result.rate} из 60 отклонено)`);
     await browser.close();
     check(!/uncaught|TypeError/i.test(log), 'в логе сервера нет падений');
   } catch (e) {
     fails++; console.log('ПРОВАЛ:', e.message);
   } finally {
-    srv.kill();
+    await new Promise((r) => { srv.once('exit', r); srv.kill(); });
     fs.rmSync(dir, { recursive: true, force: true });
   }
   console.log(fails ? `\nПровалов: ${fails}` : '\nЗащита в порядке.');

@@ -71,6 +71,59 @@ function eventLimiter(rate = 10, burst = 30) {
   return take;
 }
 
+/** Запрос пришёл со страницы самой игры. Без Origin это не браузер, и чужих кук у него нет. */
+function sameOrigin(origin, host) {
+  if (!origin) return true;
+  let o;
+  try { o = new URL(origin); } catch (e) { return false; }
+  if (PUBLIC_URL && o.origin === new URL(PUBLIC_URL).origin) return true;
+  return !!host && o.host === host;
+}
+// Сокет открывается с куками входа, поэтому чужой сайт не должен его открыть от имени игрока.
+const allowSocket = (req, cb) => cb(null, sameOrigin(req.headers.origin, req.headers.host));
+
+/** Лимит на запросы входа, регистрации и профиля: 30 в минуту с одного IP. */
+const posts = new Map();
+function postLimit(req, res, next) {
+  if (req.method !== 'POST') return next();
+  const now = Date.now(), ip = req.ip || 'unknown';
+  const r = posts.get(ip);
+  if (!r || now - r.first > 60e3) posts.set(ip, { n: 1, first: now });
+  else if (++r.n > 30) return res.status(429).json({ ok: false, error: 'Слишком много запросов. Подождите минуту.' });
+  next();
+}
+
+// Комнаты с одного IP: не больше 3 открытых сразу и 10 новых за 10 минут.
+// Иначе скрипт за секунды займёт все комнаты сервера, и никто не сможет создать свою.
+// Код комнаты угадывать тоже не дадим: 30 промахов за 10 минут, и вход по коду закрыт.
+const ROOM_WINDOW = 10 * 60e3, ROOMS_LIVE = Number(process.env.ROOMS_PER_IP) || 3, ROOMS_NEW = Number(process.env.ROOMS_NEW_PER_IP) || 10, JOIN_MISSES = 30;
+const roomsByIp = new Map(); // ip → { codes: [{code, t}] }
+const joinMiss = new Map();  // ip → { n, first }
+function roomGuard(ip, event, hub) {
+  const now = Date.now();
+  if (event === 'room:join') {
+    const m = joinMiss.get(ip);
+    if (m && now - m.first < ROOM_WINDOW && m.n >= JOIN_MISSES) return 'Слишком много неверных кодов. Попробуйте через 10 минут.';
+    return null;
+  }
+  const r = roomsByIp.get(ip);
+  if (!r) return null;
+  r.codes = r.codes.filter((c) => hub.rooms.has(c.code) || now - c.t < ROOM_WINDOW);
+  const live = r.codes.filter((c) => hub.rooms.has(c.code)).length;
+  if (live >= ROOMS_LIVE) return 'С вашего адреса уже открыто несколько комнат. Закройте одну из них.';
+  if (r.codes.filter((c) => now - c.t < ROOM_WINDOW).length >= ROOMS_NEW) return 'Слишком много новых комнат подряд. Попробуйте через 10 минут.';
+  return null;
+}
+function roomCreated(ip, code) {
+  const r = roomsByIp.get(ip) || { codes: [] };
+  r.codes.push({ code, t: Date.now() });
+  roomsByIp.set(ip, r);
+}
+function joinMissed(ip) {
+  const now = Date.now(), m = joinMiss.get(ip);
+  if (!m || now - m.first > ROOM_WINDOW) joinMiss.set(ip, { n: 1, first: now }); else m.n++;
+}
+
 // Пароль админки: 5 неверных попыток с одного IP, и вход закрыт на 15 минут.
 const adminFails = new Map();
 const ADMIN_WINDOW = 15 * 60 * 1000, ADMIN_MAX = 5;
@@ -86,4 +139,13 @@ function adminFailed(ip) {
   else r.n++;
 }
 
-module.exports = { PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };
+// Старые записи счётчиков чистим, чтобы память не росла от множества адресов.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, r] of posts) if (now - r.first > 60e3) posts.delete(k);
+  for (const [k, r] of adminFails) if (now - r.first > ADMIN_WINDOW) adminFails.delete(k);
+  for (const [k, r] of joinMiss) if (now - r.first > ROOM_WINDOW) joinMiss.delete(k);
+  for (const [k, r] of roomsByIp) if (r.codes.every((c) => now - c.t > 6 * 3600e3)) roomsByIp.delete(k);
+}, 5 * 60e3).unref();
+
+module.exports = { roomGuard, roomCreated, joinMissed, sameOrigin, allowSocket, postLimit, PROXY_HOPS, headers, ipOf, validGuestToken, connectionGuard, eventLimiter, adminLocked, adminFailed, CSP };

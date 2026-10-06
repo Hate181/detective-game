@@ -314,6 +314,12 @@
     const votes = Object.entries(v.votes).filter(([by]) => P(game, by).status === 'active');
     votes.filter(([by]) => !auto.includes(by)).forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
     game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), auto: auto.slice(), count: Object.assign({}, v.count) });
+    // Опрос тайный: в ленту идут только итоги, кто за кого, не показываем.
+    if (v.kind === 'poll') {
+      const lines = v.candidates.filter((id) => v.count[id] > 0).sort((a, b) => v.count[b] - v.count[a]).map((id) => `${nm(game, id)}: ${v.count[id]}`);
+      pushFeed(game, now, { kind: 'vote', text: `Итоги опроса: ${lines.join(', ') || 'никто не проголосовал'}.` });
+      return;
+    }
     const lines = votes.filter(([by]) => !auto.includes(by)).map(([by, t]) => `${nm(game, by)} → ${nm(game, t)}`);
     const self = auto.filter((id) => v.candidates.includes(id)), lost = auto.filter((id) => !v.candidates.includes(id));
     if (self.length) lines.push(`без выбора, голос против себя: ${self.map((id) => nm(game, id)).join(', ')}`);
@@ -898,7 +904,14 @@
     const players = game.order.map((id) => {
       const p = game.players[id];
       const rev = {};
-      TRAIT_KEYS.forEach((t) => { if (p.revealed[t] || ended) rev[t] = traitValue(game, p, t); });
+      // Ключи совпадений с уликами отдаём только в лёгком режиме или после конца партии, иначе их можно подсмотреть в сети.
+      const keepTags = ended || game.settings.hints === 'light';
+      TRAIT_KEYS.forEach((t) => {
+        if (!p.revealed[t] && !ended) return;
+        const val = traitValue(game, p, t);
+        if (!keepTags) delete val.tags;
+        rev[t] = val;
+      });
       const knowsRole = ended || p.status === 'out' || (me && (me.role !== 'innocent') && p.role !== 'innocent') || id === viewerId;
       const qi = game.turn ? game.turn.queue.indexOf(id) : -1;
       return {

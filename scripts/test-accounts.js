@@ -76,6 +76,31 @@ check(!hub.handle(acc, 'room:rename', { name: 'Гость-12345' }).ok, 'имя 
   check(hub.handle(acc, 'stats:me', {}).career.games === 2, 'смена сезона не обнуляет личные итоги');
 }
 
+// 5б. Имя аккаунта: занятое получает номер, гостевое и с невидимыми символами не проходит
+{
+  const h = new Hub({ store, guestNames: true });
+  const g = 'guest-squat-0000001', a = 'acc-' + 'd'.repeat(32), b = 'acc-' + 'c'.repeat(32);
+  h.setIdentity(g, null);
+  const x = h.handle(g, 'room:create', {});
+  h.setIdentity(b, { id: 'discord:9', provider: 'discord', name: 'Мира' });
+  h.handle(b, 'room:join', { code: x.code });
+  h.setIdentity(a, { id: 'discord:8', provider: 'discord', name: 'Мира' });
+  const j = h.handle(a, 'room:join', { code: x.code });
+  const names = h.rooms.get(x.code).players.map((p) => p.name);
+  check(j.ok && names.includes('Мира') && names.includes('Мира 2'), `занятое имя не мешает войти: ${names.join(', ')}`);
+  const c = 'acc-' + 'b'.repeat(32);
+  h.setIdentity(c, { id: 'discord:7', provider: 'discord', name: 'Гоcть-12345' });
+  h.handle(c, 'room:join', { code: x.code });
+  check(h.view(c).players.find((p) => p.id === h.view(c).realMeId).name === 'Игрок', 'аккаунт с гостевым именем садится как «Игрок»');
+  check(!h.handle(c, 'room:rename', { name: 'Гоcть-54321' }).ok, 'латинская «c» не помогает выдать себя за гостя');
+  const gm = 'guest-migr-00000001', am = 'acc-' + 'a'.repeat(32);
+  h.handle(gm, 'room:join', { code: x.code });
+  h.setIdentity(am, { id: 'discord:6', provider: 'discord', name: 'Ан\u200bна\u202e' + 'я'.repeat(40) });
+  h.migrate(gm, am);
+  const mn = h.rooms.get(x.code).players.find((p) => p.token === am).name;
+  check(mn.length <= 18 && !/[\u200b\u202e]/.test(mn), `после входа имя чистится и обрезается: ${mn}`);
+}
+
 // 6. Без флага имя по-прежнему приходит от клиента (тесты и старые сценарии)
 {
   const h3 = new Hub({ store });

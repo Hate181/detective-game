@@ -15,6 +15,7 @@
   const fail = (code, msg, extra) => { throw new HubError(code, msg, extra); };
 
   const normalizeCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const ADMIN_TTL = 12 * 3600e3;
   const TURN_OPTIONS = [30, 40, 60, 90];
   const TALK_OPTIONS = [60, 90, 120, 180];
   /** Ссылка-приглашение в Discord: принимаем только адреса самого Discord, остальное отбрасываем. */
@@ -32,6 +33,10 @@
     return `Гость-${10000 + (h % 90000)}`;
   };
   const isGuestName = (n) => /^Гость-\d{5}$/i.test(String(n || '').trim());
+  // Латинские буквы, похожие на русские: «Гоcть» с латинской c не должно сойти за гостя.
+  const LOOKALIKE = { a: 'а', c: 'с', e: 'е', o: 'о', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т', h: 'н', b: 'в', r: 'г', '0': 'о', '6': 'б' };
+  /** Имя похоже на гостевое: «Гость» в начале зарезервировано за гостями. */
+  const looksGuest = (n) => /^[\s\p{P}\p{S}]*гость/iu.test(String(n || '').toLowerCase().replace(/[a-z0-9]/g, (ch) => LOOKALIKE[ch] || ch));
   const seasonKey = (d = new Date()) => `${d.getFullYear()}-К${Math.floor(d.getMonth() / 3) + 1}`;
 
   class Hub {
@@ -44,7 +49,7 @@
       this.now = now || Date.now;
       this.rooms = new Map();
       this.tokens = new Map();
-      this.admins = new Set();
+      this.admins = new Map(); // токен → когда вход в админку истекает
       this.actAs = new Map();
       this.identities = new Map();
     }
@@ -63,8 +68,14 @@
     _room(code) { const r = this.rooms.get(normalizeCode(code)); if (!r) fail('not_found', 'Комната с таким кодом не найдена.'); return r; }
     _me(room, token) { const p = room.players.find((x) => x.token === token && !x.left); if (!p) fail('not_member', 'Вы не в этой комнате.'); return p; }
     _host(room, token) { const p = this._me(room, token); if (p.id !== room.hostId) fail('not_host', 'Это может сделать только ведущий.'); return p; }
-    _admin(token) { if (!this.admins.has(token)) fail('not_admin', 'Нужно войти в админку.'); }
-    isAdmin(token) { return this.admins.has(token); }
+    _admin(token) { if (!this.isAdmin(token)) fail('not_admin', 'Нужно войти в админку.'); }
+    /** Вход в админку действует 12 часов, потом пароль спрашивается снова. */
+    isAdmin(token) {
+      const until = this.admins.get(token);
+      if (until && until > this.now()) return true;
+      if (until) this.admins.delete(token);
+      return false;
+    }
     /** Личность из входа через Discord/Google. Для гостей записи нет. */
     setIdentity(token, ident) { if (ident) this.identities.set(token, ident); else this.identities.delete(token); }
     identityOf(token) { return this.identities.get(token) || null; }
@@ -80,7 +91,7 @@
       if (ident) {
         p.account = ident.id; p.provider = ident.provider;
         // В лобби бывший гость сразу садится под именем аккаунта, если оно свободно.
-        if (this.guestNames && from.status === 'lobby' && !from.players.some((x) => !x.left && x !== p && x.name.toLowerCase() === String(ident.name).toLowerCase())) p.name = ident.name;
+        if (this.guestNames && from.status === 'lobby') p.name = this._accountSeatName(from, toToken, ident);
       }
       this.tokens.delete(fromToken); this.tokens.set(toToken, from.code);
       this.notify(from);
@@ -90,12 +101,21 @@
     _seatName(room, token, name) {
       if (!this.guestNames) return name;
       const ident = this.identities.get(token);
-      if (ident) return ident.name;
+      if (ident) return this._accountSeatName(room, token, ident);
       const busy = new Set(room.players.filter((p) => !p.left && p.token !== token).map((p) => p.name.toLowerCase()));
       for (let salt = 0; salt < 50; salt++) { const n = guestName(token, salt); if (!busy.has(n.toLowerCase())) return n; }
       return guestName(token + this._id(6));
     }
-    setAdmin(token, on) { if (on) this.admins.add(token); else this.admins.delete(token); }
+    /** Имя аккаунта за столом. Если его уже кто-то занял, добавляем номер: так имя нельзя «забить» заранее и не пустить хозяина. */
+    _accountSeatName(room, token, ident) {
+      let base = 'Игрок';
+      try { const n = this._cleanName(ident.name); if (n.length >= 2 && !looksGuest(n)) base = n; } catch (e) { /* остаётся «Игрок» */ }
+      const busy = new Set(room.players.filter((p) => !p.left && p.token !== token).map((p) => p.name.toLowerCase()));
+      if (!busy.has(base.toLowerCase())) return base;
+      for (let i = 2; i < 20; i++) { const n = `${base.slice(0, NAME_MAX - 3)} ${i}`; if (!busy.has(n.toLowerCase())) return n; }
+      return `${base.slice(0, NAME_MAX - 7)} ${this._id(6, '0123456789')}`;
+    }
+    setAdmin(token, on) { if (on) this.admins.set(token, this.now() + ADMIN_TTL); else this.admins.delete(token); }
     _cleanName(name) {
       // Без управляющих и невидимых символов: иначе можно выдать себя за другого игрока.
       const n = String(typeof name === 'string' ? name : '').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
@@ -285,7 +305,7 @@
       const ident = this.identities.get(token);
       if (this.guestNames && !ident) fail('need_login', 'Своё имя можно задать после входа через Discord или Google.');
       const clean = this._cleanName(name);
-      if (this.guestNames && isGuestName(clean)) fail('name', 'Имена вида «Гость-12345» достаются только гостям.');
+      if (this.guestNames && (isGuestName(clean) || looksGuest(clean))) fail('name', 'Имена, начинающиеся с «Гость», достаются только гостям.');
       if (ident) ident.name = clean;
       // За столом имя меняется только до начала партии, в идущей игре останется прежнее.
       const room = this.roomOf(token); if (!room || room.status !== 'lobby') return { name: clean };
@@ -391,7 +411,7 @@
     _actingId(room, token) {
       const me = this._me(room, token);
       const as = this.actAs.get(token);
-      if (as && room.test && this.admins.has(token) && room.game && room.game.players[as]) return as;
+      if (as && room.test && this.isAdmin(token) && room.game && room.game.players[as]) return as;
       return me.id;
     }
 
@@ -511,7 +531,7 @@
       if (!room) return null;
       const me = room.players.find((x) => x.token === token && !x.left);
       if (!me) return null;
-      const admin = this.admins.has(token);
+      const admin = this.isAdmin(token);
       const as = this.actAs.get(token);
       const meId = as && room.test && admin && room.game && room.game.players[as] ? as : me.id;
       const vis = room.players.filter((p) => !p.left || room.status === 'playing');
@@ -681,5 +701,5 @@
     }
   }
 
-  return { Hub, HubError, normalizeCode, MIN_PLAYERS, MAX_PLAYERS, CODE_LENGTH, cleanDiscord, guestName };
+  return { Hub, HubError, normalizeCode, MIN_PLAYERS, MAX_PLAYERS, CODE_LENGTH, cleanDiscord, guestName, looksGuest };
 });

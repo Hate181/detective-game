@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+const { looksGuest } = require('../public/shared/hub.js');
+
 const SESSION_COOKIE = 'd_sess';
 const STATE_COOKIE = 'd_oauth';
 const SESSION_DAYS = 30;
@@ -70,6 +72,19 @@ function createAuth({ dataDir, port }) {
   const cleanMail = (v) => { const m = String(typeof v === 'string' ? v : '').trim().toLowerCase(); return m.length <= 200 && /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(m) ? m : null; };
   const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
   const hashPass = (pass, salt) => new Promise((ok, no) => crypto.scrypt(String(pass), Buffer.from(salt, 'hex'), 64, SCRYPT, (e, k) => (e ? no(e) : ok(k.toString('hex')))));
+  // Хэш пароля дорогой (16 МБ памяти и заметное время), поэтому одновременно считаем немного,
+  // а с одного адреса не больше двух сразу: иначе волна запросов на вход положит сервер.
+  const HASH_MAX = 6, busy = new Map();
+  let hashing = 0;
+  async function gated(ip, fn) {
+    const mine = busy.get(ip) || 0;
+    if (hashing >= HASH_MAX || mine >= 2) return null;
+    hashing++; busy.set(ip, mine + 1);
+    try { return await fn(); } finally {
+      hashing--; const m = (busy.get(ip) || 1) - 1; if (m > 0) busy.set(ip, m); else busy.delete(ip);
+    }
+  }
+  const BUSY = { ok: false, error: 'Сервер занят, попробуйте ещё раз через пару секунд.' };
   const passOk = (v) => typeof v === 'string' && v.length >= 8 && v.length <= 128;
   // Подбор пароля: не больше 10 ошибок за 15 минут с одного адреса и на одну почту.
   const fails = new Map();
@@ -78,6 +93,11 @@ function createAuth({ dataDir, port }) {
   const failed = (k) => { const r = fails.get(k); if (!r || Date.now() - r.first > FAIL_WINDOW) fails.set(k, { n: 1, first: Date.now() }); else r.n++; };
   // Регистрации: не больше 5 в час с одного адреса.
   const regs = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, r] of fails) if (now - r.first > FAIL_WINDOW) fails.delete(k);
+    for (const [k, r] of regs) if (now - r.first > 3600e3) regs.delete(k);
+  }, 10 * 60e3).unref();
   const regLimited = (ip) => { const r = regs.get(ip); if (!r || Date.now() - r.first > 3600e3) { regs.set(ip, { n: 1, first: Date.now() }); return false; } r.n++; return r.n > 5; };
 
   // Учёт аккаунтов для админки: кто и когда впервые вошёл, когда заходил последний раз.
@@ -103,7 +123,7 @@ function createAuth({ dataDir, port }) {
   /** Имя для игры: без невидимых символов, 2–18 знаков, без служебных слов. */
   const cleanName = (v) => {
     const n = String(typeof v === 'string' ? v : '').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 18);
-    if (n.length < 2 || /^(__proto__|constructor|prototype)$/i.test(n) || /^Гость-\d{5}$/i.test(n)) return null;
+    if (n.length < 2 || /^(__proto__|constructor|prototype)$/i.test(n) || looksGuest(n)) return null;
     return n;
   };
 
@@ -138,7 +158,8 @@ function createAuth({ dataDir, port }) {
     }
     const id = `${s.p}:${s.id}`;
     const own = profiles[id];
-    return { provider: s.p, id, name: own || String(s.n || '').slice(0, 40), providerName: String(s.n || '').slice(0, 40), custom: !!own, avatar: String(s.a || '') };
+    // Имя из Discord чистим так же, как заданное вручную: без невидимых символов и не под гостя.
+    return { provider: s.p, id, name: own || cleanName(s.n) || 'Игрок', providerName: String(s.n || '').replace(/[\p{C}]/gu, '').slice(0, 40), custom: !!own, avatar: String(s.a || '') };
   }
   /** Постоянный токен в хабе для аккаунта: один и тот же на любом устройстве. */
   // Подписан секретом сервера: по публичному ID в Discord или Google токен не вычислить.
@@ -201,7 +222,9 @@ function createAuth({ dataDir, port }) {
       if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
       if (regLimited(req.ip)) return res.status(429).json({ ok: false, error: 'Слишком много регистраций. Попробуйте через час.' });
       const salt = crypto.randomBytes(16).toString('hex');
-      const a = { id: crypto.randomBytes(12).toString('hex'), name, salt, hash: await hashPass(b.password, salt), v: 1, at: Date.now() };
+      const hash = await gated(req.ip, () => hashPass(b.password, salt));
+      if (!hash) return res.status(503).json(BUSY);
+      const a = { id: crypto.randomBytes(12).toString('hex'), name, salt, hash, v: 1, at: Date.now() };
       if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
       accounts[mail] = a; byId.set(a.id, mail); saveAccounts();
       startSession(req, res, a);
@@ -215,7 +238,8 @@ function createAuth({ dataDir, port }) {
       if (locked('ip:' + req.ip) || (mail && locked('mail:' + mail))) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
       const a = mail && accounts[mail];
       // Без аккаунта считаем хэш впустую, чтобы по времени ответа нельзя было узнать, есть ли такая почта.
-      const got = await hashPass(typeof b.password === 'string' ? b.password.slice(0, 128) : '', a ? a.salt : '00'.repeat(16));
+      const got = await gated(req.ip, () => hashPass(typeof b.password === 'string' ? b.password.slice(0, 128) : '', a ? a.salt : '00'.repeat(16)));
+      if (!got) return res.status(503).json(BUSY);
       const good = !!a && crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'));
       if (!good) { failed('ip:' + req.ip); if (mail) failed('mail:' + mail); return res.status(401).json({ ok: false, error: 'Неверная почта или пароль.' }); }
       startSession(req, res, a);
@@ -230,10 +254,14 @@ function createAuth({ dataDir, port }) {
       const mail = byId.get(acc.id.slice(6)), a = accounts[mail];
       const b = req.body || {};
       if (locked('mail:' + mail)) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
-      const got = await hashPass(typeof b.old === 'string' ? b.old.slice(0, 128) : '', a.salt);
+      const got = await gated(req.ip, () => hashPass(typeof b.old === 'string' ? b.old.slice(0, 128) : '', a.salt));
+      if (!got) return res.status(503).json(BUSY);
       if (!crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'))) { failed('mail:' + mail); return res.status(401).json({ ok: false, field: 'old', error: 'Старый пароль не подошёл.' }); }
       if (!passOk(b.password)) return res.status(400).json({ ok: false, field: 'password', error: 'Новый пароль от 8 до 128 знаков.' });
-      a.salt = crypto.randomBytes(16).toString('hex'); a.hash = await hashPass(b.password, a.salt); a.v += 1; saveAccounts();
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = await gated(req.ip, () => hashPass(b.password, salt));
+      if (!hash) return res.status(503).json(BUSY);
+      a.salt = salt; a.hash = hash; a.v += 1; saveAccounts();
       startSession(req, res, a);
       res.json({ ok: true });
     });

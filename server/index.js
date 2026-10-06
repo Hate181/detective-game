@@ -59,11 +59,12 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', security.PROXY_HOPS);
 app.use(security.headers);
+app.use(['/auth', '/api'], security.postLimit);
 const auth = createAuth({ dataDir: DATA_DIR, port: PORT });
 auth.mount(app);
 const server = http.createServer(app);
 // Сообщения игры маленькие: 32 КБ с запасом хватает и редактору дел в админке.
-const io = new Server(server, { cors: { origin: false }, maxHttpBufferSize: 64 * 1024, pingTimeout: 20000 });
+const io = new Server(server, { cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingTimeout: 20000 });
 
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: hub.rooms.size, sockets: io.engine.clientsCount, uptime: Math.round(process.uptime()) }));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
@@ -129,6 +130,10 @@ io.on('connection', (socket) => {
 
   socket.onAny((event, payload, ack) => {
     if (typeof ack !== 'function') return;
+    try { onEvent(event, payload, ack); } catch (e) { console.error('event', event, e.message); ack({ ok: false, error: 'Что-то пошло не так.' }); }
+  });
+
+  function onEvent(event, payload, ack) {
     if (!limit()) {
       if (limit.strikes() > 50) socket.disconnect(true);
       return ack({ ok: false, code: 'rate', error: 'Слишком много действий подряд. Подождите секунду.' });
@@ -138,7 +143,7 @@ io.on('connection', (socket) => {
     if (event === 'admin:auth') {
       const ip = security.ipOf(socket);
       if (security.adminLocked(ip)) return ack({ ok: false, code: 'bad_key', error: 'Слишком много попыток. Попробуйте через 15 минут.' });
-      const ok = keyOk(payload && payload.key);
+      const ok = !!payload && typeof payload.key === 'string' && keyOk(payload.key);
       if (ok) hub.setAdmin(token, true); else security.adminFailed(ip);
       return ack(ok ? { ok: true } : { ok: false, code: 'bad_key', error: 'Пароль не подошёл.' });
     }
@@ -152,10 +157,17 @@ io.on('connection', (socket) => {
       if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
       return auth.resetPassword(payload && payload.email).then((r) => ack(r ? Object.assign({ ok: true }, r) : { ok: false, error: 'Такой почты среди аккаунтов нет.' }), () => ack({ ok: false, error: 'Не получилось.' }));
     }
+    // Комнаты и вход по коду: лимиты по IP, а не по сокету, иначе переподключение их обнуляет.
+    if (event === 'room:create' || event === 'room:join') {
+      const blocked = security.roomGuard(security.ipOf(socket), event, hub);
+      if (blocked) return ack({ ok: false, code: 'rate', error: blocked });
+    }
     const res = hub.handle(token, event, payload || {});
+    if (event === 'room:create' && res.ok) security.roomCreated(security.ipOf(socket), res.code);
+    if (event === 'room:join' && !res.ok && (res.code === 'not_found' || res.code === 'in_progress')) security.joinMissed(security.ipOf(socket));
     if (res.ok && event === 'room:leave') socket.emit('room:left');
     ack(res);
-  });
+  }
 
   socket.on('disconnect', () => {
     const set = socketsOf.get(token);

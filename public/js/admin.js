@@ -194,7 +194,7 @@
       };
     },
     async saveCase() {
-      const r = await Net.call('admin:case:save', { data: this.readCase() });
+      const r = await Net.call('admin:case_save', { data: this.readCase() });
       if (!r.ok) return fail(r);
       this.cases = r.cases; this.edit = r.case.id;
       toast('Дело сохранено.');
@@ -294,7 +294,7 @@
       else if (a === 'check-case') this.checkCase();
       else if (a === 'del-case') {
         if (await UI.confirmBox({ title: 'Удалить дело?', sub: 'Вернуть его потом не получится.', ok: 'Удалить', danger: true })) {
-          const r = await Net.call('admin:case:delete', { id: this.edit });
+          const r = await Net.call('admin:case_delete', { id: this.edit });
           if (!r.ok) return fail(r);
           this.cases = r.cases; this.edit = null; toast('Дело удалено.'); this.root.querySelector('#aBody').innerHTML = this.casesHtml();
         }
