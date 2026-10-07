@@ -183,7 +183,39 @@ function start(rules) {
     if (out) {
       const pv = E.view(game, 'p1').players.find((p) => p.id === out.id);
       const opened = Object.keys(out.revealed).filter((t) => out.revealed[t]);
-      check(Object.keys(pv.revealed).sort().join() === opened.sort().join() && pv.role === out.role, `${mode}: у выбывшего видна роль и только то, что он открыл сам`);
+      check(Object.keys(pv.revealed).sort().join() === opened.sort().join(), `${mode}: у выбывшего видно только то, что он открыл сам`);
+      const viewer = game.order.find((id) => id !== out.id && game.players[id].role === 'innocent');
+      const vv = E.view(game, viewer);
+      check(vv.players.find((p) => p.id === out.id).role === null && vv.kicks[0].role === null && !vv.criminals, `${mode}: в обычном режиме роль выбывшего и счётчик преступников скрыты`);
+      check(!game.feed.some((f) => f.kind === 'kick' && /Роль:/.test(f.text)), `${mode}: в журнале роль выбывшего не названа`);
+      check(E.view(game, out.id).players.find((p) => p.id === out.id).role === out.role, `${mode}: сам выбывший свою роль знает`);
+    }
+  }
+}
+
+{
+  // Лайт: роль выбывшего раскрывается сразу, счётчик преступников виден; обычный: «Экспертиза» после любого исключения
+  for (const hints of ['light', 'normal']) {
+    const players = Array.from({ length: 8 }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
+    const game = E.createGame({ caseData: Cases.CASES[0], players, seed: 21, now: 1000, settings: { mode: 'timers', hints } });
+    let now = 1000;
+    E.act(game, game.killerId, 'alibi', { loc: game.caseData.locations.find((l) => l !== game.scene) }, now);
+    for (let i = 0; i < 40 && game.phase !== PH.VOTE; i++) E.skip(game, now += 1000);
+    const crim = game.killerId;
+    const ids = game.order.filter((id) => game.players[id].status === 'active');
+    ids.forEach((id) => E.act(game, id, 'vote', { target: id === crim ? ids.find((x) => x !== crim) : crim }, now += 10));
+    for (let i = 0; i < 5 && game.phase === PH.VOTE; i++) E.skip(game, now += 1000);
+    while (game.overlay && game.overlay.type === 'save') E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, now += 10);
+    const viewer = game.order.find((id) => game.players[id].role === 'innocent' && game.players[id].status === 'active');
+    const v = E.view(game, viewer);
+    const labs = game.order.reduce((n, id) => n + game.players[id].cards.filter((c) => c.type === 'lab').length, 0);
+    if (hints === 'light') {
+      check(game.players[crim].status === 'out' && v.players.find((p) => p.id === crim).role === 'killer' && v.criminals && v.criminals.left === 1, 'лайт: роль выбывшего видна сразу, счётчик преступников на месте');
+      check(labs === 0, 'лайт: за исключённого преступника «Экспертиза» не выдаётся');
+    } else {
+      check(game.players[crim].status === 'out' && v.players.find((p) => p.id === crim).role === null && !v.criminals, 'обычный: роль выбывшего скрыта, счётчика нет');
+      check(labs >= 1 && /экспертизу/.test(game.feed.map((f) => f.text).join(' ')), 'обычный: «Экспертиза» приходит и после исключения преступника, по ней роль не понять');
+      check(!/Убийцы больше нет/.test(game.feed.map((f) => f.text).join(' ')), 'обычный: в журнале нет подсказки, что ушёл убийца');
     }
   }
 }

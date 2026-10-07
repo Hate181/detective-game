@@ -308,15 +308,17 @@
         const k = g.kicks[g.kicks.length - 1];
         if (!k) return '';
         const p = this.byId[k.id];
-        const role = p.role === 'accomplice' ? 'Сообщник' : p.role === 'killer' ? 'Убийца' : 'Невиновный';
+        // В обычном режиме роль выбывшего скрыта до конца дела, для всех одинаково.
+        const hidden = g.hints !== 'light';
+        const role = hidden ? 'Роль скрыта' : p.role === 'accomplice' ? 'Сообщник' : p.role === 'killer' ? 'Убийца' : 'Невиновный';
         const left = g.criminals ? g.criminals.left : null;
-        const after = p.role === 'killer' ? 'Это был убийца, но сообщник ещё среди вас.' : p.role === 'accomplice' ? (g.gang ? 'Это был сообщник, но убийца остаётся среди вас.' : 'Это был сообщник убийцы, но сам убийца остаётся среди вас.') : (g.gang ? (left === 1 ? 'Это был невиновный. Один из преступников всё ещё среди вас.' : 'Это был невиновный. Оба преступника всё ещё среди вас.') : 'Это был невиновный. Убийца всё ещё среди вас.');
+        const after = hidden ? 'Кем был этот игрок, станет известно в конце дела.' : p.role === 'killer' ? 'Это был убийца, но сообщник ещё среди вас.' : p.role === 'accomplice' ? (g.gang ? 'Это был сообщник, но убийца остаётся среди вас.' : 'Это был сообщник убийцы, но сам убийца остаётся среди вас.') : (g.gang ? (left === 1 ? 'Это был невиновный. Один из преступников всё ещё среди вас.' : 'Это был невиновный. Оба преступника всё ещё среди вас.') : 'Это был невиновный. Убийца всё ещё среди вас.');
         const max = Math.max(1, ...Object.values(k.count));
         const rows = Object.keys(k.count).sort((a, b) => k.count[b] - k.count[a]).map((id) => {
           return `<div class="tr ${id === k.id ? 'top' : ''}"><span>${esc(this.byId[id].name)}</span><span class="bar"><i style="width:${Math.round(100 * k.count[id] / max)}%"></i></span><b>${k.count[id]}</b></div>`;
         }).join('');
         return `<div class="s-head"><p class="eyebrow">Раунд ${k.round} из ${g.rounds}</p><h3>${esc(p.name)} вне игры</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}</p></div>
-          <div class="kick-card"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">Роль раскрыта</span><h3>${esc(p.name)}</h3><span class="stamp">${role}</span>
+          <div class="kick-card"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">${hidden ? 'Вне игры' : 'Роль раскрыта'}</span><h3>${esc(p.name)}</h3><span class="stamp">${role}</span>
             ${p.revealed.profession ? `<p style="margin-top:8px"><b>${esc(p.revealed.profession.text)}</b></p>` : ''}${p.revealed.motive ? `<p style="font-size:14px;margin-top:6px">Мотив: ${esc(p.revealed.motive.text)}</p>` : ''}</div></div></div>
             <div class="tally">${rows}</div></div>
           <div class="talk-hint">${icon('mic')}<span>Голосование анонимное. Обсудите итог голосом: кто и почему мог голосовать против.</span></div>`;

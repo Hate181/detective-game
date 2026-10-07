@@ -5,9 +5,9 @@ const { PH } = E;
 let fails = 0;
 const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', msg); } else console.log('ок:', msg); };
 
-function start(n, rules, seed = 5) {
+function start(n, rules, seed = 5, hints) {
   const players = Array.from({ length: n }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
-  const game = E.createGame({ caseData: Cases.CASES[1], players, seed, now: 1000, settings: { mode: 'timers', rules } });
+  const game = E.createGame({ caseData: Cases.CASES[1], players, seed, now: 1000, settings: { mode: 'timers', rules, hints } });
   const st = { game, now: 1000 };
   E.act(game, game.killerId, 'alibi', { loc: game.caseData.locations.find((l) => l !== game.scene) }, st.now);
   E.skip(game, st.now += 1000);
@@ -52,8 +52,23 @@ for (const n of [6, 7, 8, 10]) {
 }
 
 {
-  // Убийцу исключили в первом раунде: дело не закрыто, пока есть сообщник
+  // Обычный режим: ушёл убийца, но об этом никто не узнаёт до конца дела
   const st = start(8);
+  const { game } = st;
+  check(toVote(st, ['kick']), 'обычный: дошли до первого голосования');
+  voteFor(st, game.killerId);
+  check(game.players[game.killerId].status === 'out' && game.phase === PH.RESULT, 'обычный: убийца исключён, партия продолжается');
+  const feed = game.feed.map((f) => f.text).join(' ');
+  check(!/сообщник ещё в игре/.test(feed), 'обычный: журнал молчит, что ушёл преступник');
+  const v = E.view(game, game.order.find((id) => id !== game.killerId && id !== game.accompliceId));
+  check(!v.criminals && v.players.find((p) => p.id === game.killerId).role === null, 'обычный: счётчика преступников нет, роль скрыта');
+  const va = E.view(game, game.accompliceId);
+  check(va.players.find((p) => p.id === game.killerId).role === 'killer', 'обычный: сообщник знает, что убийцу исключили');
+}
+
+{
+  // Лайт: убийцу исключили в первом раунде, дело не закрыто, пока есть сообщник
+  const st = start(8, undefined, 5, 'light');
   const { game } = st;
   check(toVote(st, ['kick']), 'дошли до первого голосования');
   voteFor(st, game.killerId);

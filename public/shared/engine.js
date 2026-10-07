@@ -89,6 +89,9 @@
   const isFinale = (game) => game.round >= ROUNDS;
 
   /** Ведущий листает фазы сам, пока он на связи. Если пропал, партия идёт по таймерам. */
+  /** Обычный режим: роль выбывшего и число преступников на свободе скрыты до конца дела. В лайте всё видно. */
+  const hideRoles = (game) => game.settings.hints !== 'light';
+
   function isManual(game) {
     if (game.settings.mode !== 'host') return false;
     const h = game.players[game.hostId];
@@ -441,13 +444,13 @@
     game.kicks.push(entry);
     game.decisive = { kind: v.kind, votes: Object.assign({}, v.votes) };
     const roleText = p.role === 'killer' ? 'убийца' : p.role === 'accomplice' ? 'сообщник убийцы' : 'невиновный';
-    pushFeed(game, now, { kind: 'kick', who: id, text: `Исключён: ${p.name}. Роль: ${roleText}.` });
+    pushFeed(game, now, { kind: 'kick', who: id, text: hideRoles(game) ? `Исключён: ${p.name}. Кто это был, станет известно в конце дела.` : `Исключён: ${p.name}. Роль: ${roleText}.` });
     const criminalsLeft = active(game).filter((a) => a.role !== 'innocent').length;
     if (game.gang) {
       if (p.role !== 'innocent' && criminalsLeft === 0) return startVerdict(game, now, 'innocent', 'caught', id);
       // Преступников стало столько же, сколько невиновных (2 на 2, 1 на 1): исключать больше некого, они побеждают.
       if (criminalsLeft > 0 && criminalsLeft >= active(game).length - criminalsLeft) return startVerdict(game, now, 'killer', 'outnumbered', id);
-      if (p.role !== 'innocent') pushFeed(game, now, { kind: 'system', text: p.role === 'killer' ? 'Убийцы больше нет среди вас, но сообщник ещё в игре. Дело не закрыто.' : 'Сообщник исключён, но убийца ещё среди вас. Дело не закрыто.' });
+      if (p.role !== 'innocent' && !hideRoles(game)) pushFeed(game, now, { kind: 'system', text: p.role === 'killer' ? 'Убийцы больше нет среди вас, но сообщник ещё в игре. Дело не закрыто.' : 'Сообщник исключён, но убийца ещё среди вас. Дело не закрыто.' });
     } else if (p.role === 'killer') return startVerdict(game, now, 'innocent', 'caught', id);
     rubberBand(game, now, p, v.kind);
     if (v.kind === 'final') {
@@ -467,12 +470,14 @@
     const act = active(game);
     const rules = game.settings.rules;
     if (kind !== 'kick') return;
-    if (kicked.role === 'innocent') {
+    // Когда роли скрыты, «Экспертиза» приходит после любого исключения, иначе по ней было бы видно, что ушёл невиновный.
+    if (kicked.role === 'innocent' || hideRoles(game)) {
       const pool = rules.labTo === 'innocent' ? act.filter((a) => a.role === 'innocent') : act;
-      if (!pool.length) return;
-      game.rng.shuffle(pool).slice(0, rules.labCount || 1).forEach((a) => a.cards.push({ type: 'lab', used: false, got: game.round }));
-      pushFeed(game, now, { kind: 'card', text: 'Улики ушли на экспертизу: один из оставшихся получил карту «Экспертиза».' });
-      return;
+      if (pool.length) {
+        game.rng.shuffle(pool).slice(0, rules.labCount || 1).forEach((a) => a.cards.push({ type: 'lab', used: false, got: game.round }));
+        pushFeed(game, now, { kind: 'card', text: 'Улики ушли на экспертизу: один из оставшихся получил карту «Экспертиза».' });
+      }
+      if (kicked.role === 'innocent') return;
     }
     if (!game.gang || rules.trail === false) return;
     act.filter((a) => a.role !== 'innocent').forEach((c) => c.cards.push({ type: 'trail', used: false, got: game.round }));
@@ -963,6 +968,9 @@
   function view(game, viewerId, opts = {}) {
     const me = game.players[viewerId];
     const ended = game.phase === PH.ENDED;
+    // Чью роль видит зритель: свою, напарника-преступника, выбывших (только в лайте) и всех, когда дело решено.
+    const decided = ended || game.phase === PH.VERDICT || game.phase === PH.ACCOMPLICE;
+    const knows = (id) => { const p = game.players[id]; return decided || id === viewerId || (p.status === 'out' && !hideRoles(game)) || !!(me && me.role !== 'innocent' && p.role !== 'innocent'); };
     const voting = VOTE_PHASES.includes(game.phase) && game.vote;
     const turn = game.turn && game.phase === PH.TURNS ? game.turn : null;
     const acc = game.accuse && game.phase === PH.ACCUSE ? game.accuse : null;
@@ -977,7 +985,7 @@
         if (!keepTags) delete val.tags;
         rev[t] = val;
       });
-      const knowsRole = ended || p.status === 'out' || (me && (me.role !== 'innocent') && p.role !== 'innocent') || id === viewerId;
+      const knowsRole = knows(id);
       const qi = game.turn ? game.turn.queue.indexOf(id) : -1;
       return {
         id, name: p.name, bot: p.bot, status: p.status, revealed: rev,
@@ -998,7 +1006,7 @@
       round: game.round, rounds: ROUNDS, finale: isFinale(game), speed: game.settings.speed,
       case: { title: game.caseData.title, victim: game.caseData.victim, time: game.caseData.time, teaser: game.caseData.teaser, locations: game.caseData.locations, scene: game.scene, icon: game.caseData.icon },
       accomplice: !!game.accompliceId, gang: !!game.gang,
-      criminals: game.gang ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
+      criminals: game.gang && !hideRoles(game) ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
       kicksLeft: game.gang && game.round >= ROUNDS ? game.finalLeft : null,
       players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, options: me && ov.nomineeId === me.id ? ov.options : null } : null,
       accuse: acc ? { speakerId: acc.speakerId, idx: acc.idx, total: acc.queue.length, queue: acc.queue, done: acc.done } : null,
@@ -1009,7 +1017,7 @@
       poll: game.poll ? { finalists: game.poll.finalists } : null,
       defense: game.defense ? { order: game.defense.order, idx: game.defense.idx, speaker: game.defense.order[game.defense.idx] || null } : null,
       verdict: game.verdict,
-      kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role, count: k.count })),
+      kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: knows(k.id) ? k.role : null, count: k.count })),
       results: ended ? game.results : null,
     };
     if (me) {
