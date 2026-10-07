@@ -649,7 +649,11 @@
 
   HANDLERS.ready = (game, p) => {
     if (game.phase === PH.BRIEF) { p.ready = true; return; }
-    if (game.phase === PH.TALK) { needActive(p); p.ready = !p.ready; return; }
+    if (game.phase === PH.TALK) {
+      // При живом ведущем к допросу переходит он, кнопки готовности нет.
+      if (isManual(game)) bad('К допросу переходит ведущий.');
+      needActive(p); p.ready = !p.ready; return;
+    }
     bad('Сейчас это недоступно.');
   };
 
@@ -726,6 +730,8 @@
     needPhase(game, PH.QUESTION);
     const a = game.ask;
     if (a.stage !== 'answer' || (a.targetId !== p.id && a.askerId !== p.id)) bad('Сейчас отвечает другой игрок.');
+    // При живом ведущем дальше листает только он, убедившись, что ответ прозвучал.
+    if (isManual(game)) bad('Следующий вопрос включает ведущий.');
     nextAsker(game, now);
   };
 
@@ -1055,7 +1061,7 @@
           locked: mySpeak && !game.turn.revealed ? [...SAFE_TRAITS].filter((t) => !me.revealed[t] && lockedTrait(game, me, t)) : [],
           endturn: mySpeak || (game.phase === PH.DEFENSE && game.defense.order[game.defense.idx] === me.id),
           ask: !!ask && ask.stage === 'pick' && ask.askerId === me.id && canAct && !game.overlay,
-          answered: !!ask && ask.stage === 'answer' && (ask.targetId === me.id || ask.askerId === me.id),
+          answered: !!ask && ask.stage === 'answer' && (ask.targetId === me.id || ask.askerId === me.id) && !isManual(game),
           card: game.phase === PH.TALK && !game.overlay && canAct,
           vote: !!voting && !game.overlay && canAct,
         },

@@ -158,7 +158,7 @@
         const total = game.clock ? game.clock.full : 1;
         const r = game.rng.next();
         if (r < 0.35 && elapsed > total * 0.1 && useCard(game, p, now)) return true;
-        if (elapsed > total * 0.4 && !p.ready && game.rng.chance(0.5)) return act(game, p.id, 'ready', {}, now).ok;
+        if (!E.isManual(game) && elapsed > total * 0.4 && !p.ready && game.rng.chance(0.5)) return act(game, p.id, 'ready', {}, now).ok;
         return false;
       }
       if (ph === PH.QUESTION) {
@@ -170,7 +170,7 @@
           const t = p.bot && game.rng.chance(0.85) ? pickVote(game, p, pool) : null;
           return act(game, p.id, 'ask', t ? { target: t } : { pass: true }, now).ok;
         }
-        if (a.stage === 'answer' && a.targetId === p.id) {
+        if (a.stage === 'answer' && a.targetId === p.id && !E.isManual(game)) {
           const key = `${game.round}:${a.idx}`;
           if (p.bot && m.answer !== key) { m.answer = key; return true; }
           return act(game, p.id, 'answered', {}, now).ok;

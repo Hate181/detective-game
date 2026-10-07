@@ -146,6 +146,8 @@ function start(rules) {
     E.act(game, game.killerId, 'alibi', { loc: game.caseData.locations.find((l) => l !== game.scene) }, now);
     for (let i = 0; i < 20 && game.phase !== PH.TALK; i++) E.skip(game, now += 1000);
     const turnQueue = game.turn.queue.slice();
+    const rd = E.act(game, 'p1', 'ready', {}, now += 10);
+    check(mode === 'host' ? !rd.ok : rd.ok, `${mode}: кнопка готовности в обсуждении ${mode === 'host' ? 'выключена, к допросу ведёт ведущий' : 'работает'}`);
     E.skip(game, now += 1000);
     check(game.phase === PH.QUESTION && game.ask.stage === 'pick', `${mode}: после обсуждения начинается допрос`);
     check(game.ask.queue.join() === turnQueue.join() && game.ask.askerId === turnQueue[0], `${mode}: спрашивают в том же порядке, что и рассказывали`);
@@ -155,11 +157,18 @@ function start(rules) {
     const v0 = E.view(game, a0);
     check(v0.me.can.ask && v0.ask.askerId === a0 && v0.players.find((p) => p.id === a0).speaking, `${mode}: спрашивающий видит свой ход, у остальных он подсвечен`);
     check(E.act(game, a0, 'ask', { target: other }, now += 10).ok && game.ask.stage === 'answer' && game.ask.targetId === other, `${mode}: вопрос задан, отвечает выбранный`);
-    check(E.view(game, other).me.can.answered && E.view(game, other).players.find((p) => p.id === other).speaking, `${mode}: у отвечающего кнопка «Ответ дан» и подсветка`);
+    check(E.view(game, other).players.find((p) => p.id === other).speaking, `${mode}: отвечающий подсвечен`);
+    check(mode === 'host' ? !E.view(game, other).me.can.answered : E.view(game, other).me.can.answered, `${mode}: кнопка «Ответ дан» ${mode === 'host' ? 'не нужна, листает ведущий' : 'есть у отвечающего'}`);
     check(game.clock.full === 30000 && (mode === 'host' ? game.clock.state === 'idle' : game.clock.state === 'run'), `${mode}: на ответ 30 секунд${mode === 'host' ? ', отсчёт запускает ведущий' : ''}`);
     check(/задаёт вопрос игроку/.test(game.feed[game.feed.length - 1].text), `${mode}: в журнале видно, кто кого спросил`);
     check(!E.act(game, turnQueue[2], 'answered', {}, now += 10).ok, `${mode}: за другого ответ не закончить`);
-    check(E.act(game, other, 'answered', {}, now += 10).ok && game.ask.askerId === other && game.ask.stage === 'pick', `${mode}: после ответа ход у следующего`);
+    if (mode === 'host') {
+      check(!E.act(game, other, 'answered', {}, now += 10).ok && game.ask.stage === 'answer', 'host: сам отвечающий ход не переключит');
+      E.tick(game, now += 120000);
+      check(game.ask.stage === 'answer', 'host: сам по себе ход не переходит');
+      check(E.act(game, 'p0', 'host', { do: 'next' }, now += 10).ok, 'host: ведущий включает следующий вопрос');
+    } else check(E.act(game, other, 'answered', {}, now += 10).ok, 'timers: отвечающий сам говорит «Ответ дан»');
+    check(game.ask.askerId === other && game.ask.stage === 'pick', `${mode}: после ответа ход у следующего`);
     check(E.act(game, other, 'ask', { pass: true }, now += 10).ok && game.ask.askerId === turnQueue[2] && /нет вопросов/.test(game.feed[game.feed.length - 1].text), `${mode}: «Нет вопросов» передаёт ход дальше`);
     // Остальные отказываются; последний отказ
     while (game.phase === PH.QUESTION && game.ask.stage === 'pick') E.act(game, game.ask.askerId, 'ask', { pass: true }, now += 10);

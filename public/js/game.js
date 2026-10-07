@@ -191,7 +191,7 @@
         else if (g.phase === 'question' && g.ask && g.ask.queue.includes(p.id)) st = `<span class="st">${g.ask.queue.indexOf(p.id) + 1}-й</span>`;
         else if (g.phase === 'turns' && p.spoke) st = '<span class="st ok">✓</span>';
         else if (voting && p.voted) st = '<span class="st ok">✓</span>';
-        else if ((g.phase === 'brief' || g.phase === 'talk') && p.ready) st = '<span class="st ok">✓ готово</span>';
+        else if ((g.phase === 'brief' || (g.phase === 'talk' && !g.manual)) && p.ready) st = '<span class="st ok">✓ готово</span>';
         else if (g.phase === 'turns' && g.turn && g.turn.queue.includes(p.id)) st = `<span class="st">${g.turn.queue.indexOf(p.id) + 1}-й</span>`;
         const c = this.conn[p.id]; const off = c && !c.connected && !c.isBot;
         const role = out && p.role === 'killer' ? '<span class="role">убийца</span>' : out && p.role === 'accomplice' ? '<span class="role" style="color:var(--amber)">сообщник</span>' : '';
@@ -295,7 +295,7 @@
             <span class="ask-arrow" aria-hidden="true">→</span>
             <div class="speaker">${avatar(tg.name, this.idx[tg.id], 'lg')}<div><p class="eyebrow">Отвечает</p><h3>${esc(tg.name)}${mineT ? ' (вы)' : ''}</h3></div></div></div>
           <div class="talk-hint">${icon('mic')}<span>${esc(hint)}</span></div>
-          ${mineT ? '<div class="act-row"><button class="btn btn-primary" data-a="answered">Ответ дан</button><span class="muted">Ход перейдёт следующему.</span></div>' : ''}${outNote}`;
+          ${mineT && me.can.answered ? '<div class="act-row"><button class="btn btn-primary" data-a="answered">Ответ дан</button><span class="muted">Ход перейдёт следующему.</span></div>' : ''}${g.manual ? '<p class="muted">Следующий вопрос включает ведущий, когда ответ прозвучал.</p>' : ''}${outNote}`;
       }
 
       if (g.phase === 'talk') {
@@ -304,7 +304,7 @@
         const passive = !usable && me.cards.find((c) => !c.used && PASSIVE.includes(c.type));
         const cardBtn = passive ? `<span class="muted card-note">Ваша карта «${esc(passive.name)}» сработает сама, когда вас соберутся исключить.</span>` : `<button class="btn" data-a="card" ${usable && me.can.card ? '' : 'disabled'}>${me.cards.every((c) => c.used) ? 'Карты сыграны' : 'Карта действия'}</button>`;
         const acts = !meOut ? `<div class="act-row">${cardBtn}
-          <button class="btn ${me.ready ? '' : 'btn-primary'}" data-a="ready">${me.ready ? 'Отменить готовность' : 'Готово к голосованию'}</button><span class="muted">Готовы: ${readyN} из ${nAct}</span></div>` : '';
+          ${g.manual ? '<span class="muted">К допросу переходит ведущий.</span>' : `<button class="btn ${me.ready ? '' : 'btn-primary'}" data-a="ready">${me.ready ? 'Отменить готовность' : 'Готово к допросу'}</button><span class="muted">Готовы: ${readyN} из ${nAct}</span>`}</div>` : '';
         return `<div class="s-head"><p class="eyebrow">Свободное обсуждение</p><h3>${g.gang ? 'Кто здесь убийца и сообщник?' : 'Кто из нас убийца?'}</h3><p>Сверяйте алиби, ищите совпадения с уликами, спрашивайте друг друга.</p></div>${acts}${outNote}
           <div class="dossiers">${g.players.map((p) => this.dossier(p)).join('')}</div>`;
       }
@@ -448,7 +448,7 @@
       const nAct = g.players.filter((p) => p.status === 'active').length;
       let status = '';
       if (g.phase === 'brief') status = `Готовы: ${g.players.filter((p) => p.ready).length} из ${g.players.length}`;
-      else if (g.phase === 'talk') status = `Готовы к голосованию: ${g.players.filter((p) => p.status === 'active' && p.ready).length} из ${nAct}`;
+      else if (g.phase === 'talk' && !g.manual) status = `Готовы к допросу: ${g.players.filter((p) => p.status === 'active' && p.ready).length} из ${nAct}`;
       else if (g.vote && ['vote', 'poll', 'final'].includes(g.phase)) status = `Проголосовали: ${g.vote.voted.length} из ${nAct}`;
       else if (g.phase === 'turns' && g.turn) status = `Слово: ${this.byId[g.turn.speakerId].name}`;
       else if (g.phase === 'question' && g.ask) status = g.ask.stage === 'done' ? 'Допрос окончен' : g.ask.stage === 'answer' ? `Отвечает: ${this.byId[g.ask.targetId].name}` : `Спрашивает: ${this.byId[g.ask.askerId].name}`;
