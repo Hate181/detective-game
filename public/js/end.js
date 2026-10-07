@@ -153,10 +153,9 @@
       const cards = R.votes.map((v) => {
         const kick = R.kicks.find((k) => k.round === v.round && (v.kind === 'kick' ? k.kind === 'kick' : k.kind === v.kind));
         const rows = Object.keys(v.count).sort((a, b) => v.count[b] - v.count[a]).map((id) => {
-          const who = Object.keys(v.votes).filter((by) => v.votes[by] === id).map((by) => (by === id ? `${nm(by)} (без выбора)` : nm(by)));
-          return `<div class="liar"><div class="l-top">${avatar(nm(id), this.idx[id], 'sm')}<b>${esc(nm(id))}</b><span class="badge ${kick && kick.id === id ? 'red' : ''}">${v.count[id]}</span></div><div class="claim">${who.length ? esc(who.join(', ')) : 'никто не голосовал'}</div></div>`;
+          return `<div class="liar"><div class="l-top">${avatar(nm(id), this.idx[id], 'sm')}<b>${esc(nm(id))}</b><span class="badge ${kick && kick.id === id ? 'red' : ''}">${v.count[id]}</span></div></div>`;
         }).join('');
-        return `<div class="panel" style="margin-bottom:14px"><div class="panel-head"><h2>${KIND[v.kind]}${v.runoff ? ' · переголосование' : ''}</h2><span class="count">раунд ${v.round}${kick ? ` · вне игры: ${esc(nm(kick.id))}` : ''}</span></div><div class="liars" style="margin-top:0">${rows}</div></div>`;
+        return `<div class="panel" style="margin-bottom:14px"><div class="panel-head"><h2>${KIND[v.kind]}${v.runoff ? ' · переголосование' : ''}</h2><span class="count">раунд ${v.round}${kick ? ` · вне игры: ${esc(nm(kick.id))}` : ''}${v.skipped ? ` · не выбрали: ${v.skipped}` : ''}</span></div><div class="liars" style="margin-top:0">${rows}</div></div>`;
       }).join('');
       return cards;
     },

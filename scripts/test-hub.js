@@ -27,8 +27,7 @@ while (hub.rooms.get(code).game.phase !== 'ended' && steps++ < 20000) {
   // Ведущий нажимает «Дальше», когда фаза ждёт его (долго стоит на месте).
   if (['brief', 'clue', 'talk', 'result'].includes(g.phase) && t - g.phaseStartedAt > 2500) { const x = act('host', { do: 'next' }); if (x.ok) hostPresses++; }
   if (g.phase === 'turns' && t - g.phaseStartedAt > 15000) { const x = act('host', { do: 'next' }); if (x.ok) hostPresses++; }
-  if (g.phase === 'question' && me.can.ask) act('ask', { target: g.players.find((p) => p.status === 'active' && p.id !== me.id).id });
-  if (g.phase === 'question' && t - g.phaseStartedAt > 6000) { const x = act('host', { do: 'next' }); if (x.ok) hostPresses++; }
+  if (g.phase === 'accuse' && t - g.phaseStartedAt > 3000) { const x = act('host', { do: 'next' }); if (x.ok) hostPresses++; }
   if (g.phase === 'accomplice' && g.me.role === 'accomplice') act('accomplice', { mode: 'stealth' });
 }
 let g = hub.view('adm').game;

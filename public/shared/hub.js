@@ -175,7 +175,7 @@
       this._guardOther(token, null, leave);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
+        settings: { discuss: 90, turn: 60, speed: 1, mode: 'host', hints: 'normal', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
       let host;
@@ -599,7 +599,7 @@
       this._leave(token);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 40, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', discord: '' }, players: [], game: null, test: true,
+        settings: { discuss: 90, turn: 60, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', discord: '' }, players: [], game: null, test: true,
         testRole: ['killer', 'innocent', 'accomplice', 'random'].includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);

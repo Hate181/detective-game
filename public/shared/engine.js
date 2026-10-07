@@ -17,7 +17,7 @@
 
   const ROUNDS = 4;
   const PH = {
-    BRIEF: 'brief', CLUE: 'clue', TURNS: 'turns', TALK: 'talk', QUESTION: 'question', VOTE: 'vote', RESULT: 'result',
+    BRIEF: 'brief', CLUE: 'clue', TURNS: 'turns', TALK: 'talk', ACCUSE: 'accuse', VOTE: 'vote', RESULT: 'result',
     POLL: 'poll', DEFENSE: 'defense', FINAL: 'final', VERDICT: 'verdict', ACCOMPLICE: 'accomplice', ENDED: 'ended',
   };
   const VOTE_PHASES = [PH.VOTE, PH.POLL, PH.FINAL];
@@ -218,7 +218,7 @@
     pushFeed(game, now, { kind: 'turn', who: t.speakerId, text: `Слово: ${nm(game, t.speakerId)}.` });
   }
 
-  /** Профессию и особенность сами открывают только одну из двух: вторая всплывёт от «Обыска», «Показаний» или исключения.
+  /** Профессию и особенность сами открывают только одну из двух: вторая всплывёт только от «Обыска» или «Показаний».
       Тогда «открыли обе и вычеркнули всех, кто не подходит» перестаёт решать дело за пару раундов. */
   function lockedTrait(game, p, trait) {
     if (!game.settings.rules.oneOfTwo) return false;
@@ -246,36 +246,35 @@
     pushFeed(game, now, { kind: 'system', text: 'Все высказались. Теперь свободное обсуждение: спрашивайте, сверяйте алиби, спорьте.' });
   }
 
-  /* Допрос: после обсуждения в том же порядке, что и рассказы, каждый задаёт один вопрос одному игроку.
-     Вопрос и ответ звучат голосом, сайт показывает, чья очередь и кого спросили. Отказаться можно кнопкой «Нет вопросов». */
-  function startQuestions(game, now) {
+  /* Обвинительная минута: после обсуждения в том же порядке, что и рассказы, каждый по минуте говорит,
+     кого подозревает и почему. С живым ведущим дальше листает только он, по таймерам говорящий может закончить сам. */
+  function startAccuse(game, now) {
     const order = game.turn && game.turn.round === game.round ? game.turn.queue : active(game).map((p) => p.id);
-    game.ask = { queue: order.filter((id) => P(game, id).status === 'active'), idx: -1, askerId: null, targetId: null, stage: 'pick', round: game.round };
-    pushFeed(game, now, { kind: 'system', text: 'Допрос. По очереди каждый задаёт один вопрос одному игроку, тот отвечает при всех.' });
-    nextAsker(game, now);
+    game.accuse = { queue: order.filter((id) => P(game, id).status === 'active'), idx: -1, speakerId: null, done: false, round: game.round };
+    pushFeed(game, now, { kind: 'system', text: 'Обвинительная минута. По очереди каждый говорит, кого подозревает и почему.' });
+    nextAccuser(game, now);
   }
 
-  function nextAsker(game, now) {
-    const a = game.ask;
+  function nextAccuser(game, now) {
+    const a = game.accuse;
     a.idx += 1;
-    a.targetId = null;
     while (a.idx < a.queue.length && P(game, a.queue[a.idx]).status !== 'active') a.idx += 1;
-    game.phase = PH.QUESTION;
+    game.phase = PH.ACCUSE;
     game.phaseStartedAt = now;
     game.autoAt = null;
     game.overlay = null;
     if (a.idx >= a.queue.length) {
-      a.askerId = null;
-      a.stage = 'done';
+      a.speakerId = null;
+      a.done = true;
       // Без живого ведущего голосование начинается сразу, с ведущим ждёт его кнопки.
       if (!isManual(game)) return toVote(game, now);
-      pushFeed(game, now, { kind: 'system', text: 'Допрос окончен. Ведущий начнёт голосование.' });
-      startClock(game, now, dur(game, 'ask'));
+      pushFeed(game, now, { kind: 'system', text: 'Все высказались. Ведущий начнёт голосование.' });
+      startClock(game, now, dur(game, 'accuse'));
       return;
     }
-    a.askerId = a.queue[a.idx];
-    a.stage = 'pick';
-    startClock(game, now, dur(game, 'ask'));
+    a.speakerId = a.queue[a.idx];
+    startClock(game, now, dur(game, 'accuse'));
+    pushFeed(game, now, { kind: 'turn', who: a.speakerId, text: `Обвинительная минута: ${nm(game, a.speakerId)}.` });
   }
 
   const toVote = (game, now) => startVote(game, now, isFinale(game) ? 'poll' : 'kick');
@@ -291,14 +290,8 @@
         break;
       case PH.CLUE: startTurns(game, now); break;
       case PH.TURNS: endTurn(game, now); break;
-      case PH.TALK: startQuestions(game, now); break;
-      case PH.QUESTION: {
-        const a = game.ask;
-        if (a.stage === 'done') { toVote(game, now); break; }
-        if (a.stage === 'pick') pushFeed(game, now, { kind: 'ask', who: a.askerId, text: `${nm(game, a.askerId)} не задаёт вопрос.` });
-        nextAsker(game, now);
-        break;
-      }
+      case PH.TALK: startAccuse(game, now); break;
+      case PH.ACCUSE: if (game.accuse.done) toVote(game, now); else nextAccuser(game, now); break;
       case PH.VOTE: tallyVote(game, now); break;
       case PH.RESULT: afterResult(game, now); break;
       case PH.POLL: tallyPoll(game, now); break;
@@ -355,17 +348,10 @@
     const votes = Object.entries(v.votes).filter(([by]) => P(game, by).status === 'active');
     votes.filter(([by]) => !auto.includes(by)).forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
     game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), auto: auto.slice(), count: Object.assign({}, v.count) });
-    // Опрос тайный: в ленту идут только итоги, кто за кого, не показываем.
-    if (v.kind === 'poll') {
-      const lines = v.candidates.filter((id) => v.count[id] > 0).sort((a, b) => v.count[b] - v.count[a]).map((id) => `${nm(game, id)}: ${v.count[id]}`);
-      pushFeed(game, now, { kind: 'vote', text: `Итоги опроса: ${lines.join(', ') || 'никто не проголосовал'}.` });
-      return;
-    }
-    const lines = votes.filter(([by]) => !auto.includes(by)).map(([by, t]) => `${nm(game, by)} → ${nm(game, t)}`);
-    const self = auto.filter((id) => v.candidates.includes(id)), lost = auto.filter((id) => !v.candidates.includes(id));
-    if (self.length) lines.push(`без выбора, голос против себя: ${self.map((id) => nm(game, id)).join(', ')}`);
-    if (lost.length) lines.push(`без выбора, голос пропал: ${lost.map((id) => nm(game, id)).join(', ')}`);
-    pushFeed(game, now, { kind: 'vote', text: `Голоса: ${lines.join('; ') || 'никто не проголосовал'}.` });
+    // Голосование анонимное: в ленту идут только итоги, кто за кого, не показываем ни в игре, ни после.
+    const lines = v.candidates.filter((id) => v.count[id] > 0).sort((a, b) => v.count[b] - v.count[a]).map((id) => `${nm(game, id)}: ${v.count[id]}`);
+    const skipped = auto.length ? ` Не выбрали: ${auto.length}.` : '';
+    pushFeed(game, now, { kind: 'vote', text: `${v.kind === 'poll' ? 'Итоги опроса' : 'Итоги голосования'}: ${lines.join(', ') || 'никто не проголосовал'}.${skipped}` });
   }
 
   function tallyVote(game, now) {
@@ -451,12 +437,11 @@
     game.overlay = null;
     const p = P(game, id);
     p.status = 'out';
-    TRAIT_KEYS.filter((t) => t !== 'secret').forEach((t) => { p.revealed[t] = true; });
     const entry = { id, kind: v.kind, via, round: game.round, t: now, role: p.role, count: Object.assign({}, v.count), votes: Object.assign({}, v.votes) };
     game.kicks.push(entry);
     game.decisive = { kind: v.kind, votes: Object.assign({}, v.votes) };
     const roleText = p.role === 'killer' ? 'убийца' : p.role === 'accomplice' ? 'сообщник убийцы' : 'невиновный';
-    pushFeed(game, now, { kind: 'kick', who: id, text: `Исключён: ${p.name}. Карточка вскрыта: ${roleText}.` });
+    pushFeed(game, now, { kind: 'kick', who: id, text: `Исключён: ${p.name}. Роль: ${roleText}.` });
     const criminalsLeft = active(game).filter((a) => a.role !== 'innocent').length;
     if (game.gang) {
       if (p.role !== 'innocent' && criminalsLeft === 0) return startVerdict(game, now, 'innocent', 'caught', id);
@@ -609,7 +594,7 @@
       plants: game.plants, accompliceChoice: accChoice || null, sherlockId: findSherlock(game),
       clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
       kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role })),
-      votes: game.votesLog, rounds: game.round,
+      votes: game.votesLog.map((x) => ({ round: x.round, kind: x.kind, runoff: x.runoff, count: x.count, skipped: x.auto.length })), rounds: game.round,
     };
   }
 
@@ -650,8 +635,8 @@
   HANDLERS.ready = (game, p) => {
     if (game.phase === PH.BRIEF) { p.ready = true; return; }
     if (game.phase === PH.TALK) {
-      // При живом ведущем к допросу переходит он, кнопки готовности нет.
-      if (isManual(game)) bad('К допросу переходит ведущий.');
+      // При живом ведущем к обвинениям переходит он, кнопки готовности нет.
+      if (isManual(game)) bad('Дальше ведёт ведущий.');
       needActive(p); p.ready = !p.ready; return;
     }
     bad('Сейчас это недоступно.');
@@ -698,7 +683,7 @@
     if (game.turn.revealed) bad('Вы уже открыли карточку в этот ход.');
     if (![...SAFE_TRAITS, 'secret'].includes(pl.trait)) bad('Эту характеристику раскрыть нельзя.');
     if (p.revealed[pl.trait]) bad('Это уже раскрыто.');
-    if (lockedTrait(game, p, pl.trait)) bad('Профессию и особенность сами открывают только одну из двух. Вторую раскроют карты или исключение.');
+    if (lockedTrait(game, p, pl.trait)) bad('Открыть можно только одно: особенность или профессию. Второе раскроют только карты.');
     game.turn.revealed = true;
     publicReveal(game, now, p, pl.trait, 'choice');
   };
@@ -707,32 +692,6 @@
     needPhase(game, PH.TURNS);
     if (game.turn.speakerId !== p.id) bad('Сейчас говорит другой игрок.');
     endTurn(game, now);
-  };
-
-  HANDLERS.ask = (game, p, pl, now) => {
-    needPhase(game, PH.QUESTION); noOverlay(game);
-    const a = game.ask;
-    if (a.stage !== 'pick' || a.askerId !== p.id) bad('Сейчас спрашивает другой игрок.');
-    if (pl.pass === true) {
-      pushFeed(game, now, { kind: 'ask', who: p.id, text: `${p.name}: нет вопросов.` });
-      return nextAsker(game, now);
-    }
-    const t = pl.target ? P(game, pl.target) : null;
-    if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока, который ещё в игре.');
-    a.targetId = t.id;
-    a.stage = 'answer';
-    game.phaseStartedAt = now;
-    startClock(game, now, dur(game, 'answer'));
-    pushFeed(game, now, { kind: 'ask', who: p.id, text: `Допрос: ${p.name} задаёт вопрос игроку ${t.name}.` });
-  };
-
-  HANDLERS.answered = (game, p, pl, now) => {
-    needPhase(game, PH.QUESTION);
-    const a = game.ask;
-    if (a.stage !== 'answer' || (a.targetId !== p.id && a.askerId !== p.id)) bad('Сейчас отвечает другой игрок.');
-    // При живом ведущем дальше листает только он, убедившись, что ответ прозвучал.
-    if (isManual(game)) bad('Следующий вопрос включает ведущий.');
-    nextAsker(game, now);
   };
 
   HANDLERS.vote = (game, p, pl) => {
@@ -869,6 +828,14 @@
     nextDefender(game, now);
   };
 
+  HANDLERS.endaccuse = (game, p, pl, now) => {
+    needPhase(game, PH.ACCUSE);
+    if (game.accuse.speakerId !== p.id) bad('Сейчас говорит другой игрок.');
+    // С живым ведущим дальше листает только он.
+    if (isManual(game)) bad('Следующего включает ведущий.');
+    nextAccuser(game, now);
+  };
+
   HANDLERS.accomplice = (game, p, pl, now) => {
     needPhase(game, PH.ACCOMPLICE);
     if (p.id !== game.accompliceId) bad('Это решение сообщника.');
@@ -998,8 +965,7 @@
     const ended = game.phase === PH.ENDED;
     const voting = VOTE_PHASES.includes(game.phase) && game.vote;
     const turn = game.turn && game.phase === PH.TURNS ? game.turn : null;
-    const ask = game.ask && game.phase === PH.QUESTION ? game.ask : null;
-    const askNow = ask ? (ask.stage === 'answer' ? ask.targetId : ask.askerId) : null;
+    const acc = game.accuse && game.phase === PH.ACCUSE ? game.accuse : null;
     const players = game.order.map((id) => {
       const p = game.players[id];
       const rev = {};
@@ -1019,7 +985,7 @@
         tags: chips(ended ? p.card.tags : game.settings.hints === 'light' ? shownTags(p) : []),
         role: knowsRole ? p.role : null,
         ready: p.ready, left: p.left, auto: p.auto && !p.bot, host: id === game.hostId,
-        speaking: (!!turn && turn.speakerId === id) || (!!askNow && askNow === id),
+        speaking: (!!turn && turn.speakerId === id) || (!!acc && acc.speakerId === id),
         spoke: !!game.turn && game.turn.round === game.round && qi >= 0 && (game.phase !== PH.TURNS ? game.phase !== PH.CLUE : qi < game.turn.idx),
         voted: !!voting && !!game.vote.votes[id],
       };
@@ -1034,8 +1000,8 @@
       accomplice: !!game.accompliceId, gang: !!game.gang,
       criminals: game.gang ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
       kicksLeft: game.gang && game.round >= ROUNDS ? game.finalLeft : null,
-      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, voters: ov.voters || [], options: me && ov.nomineeId === me.id ? ov.options : null } : null,
-      ask: ask ? { askerId: ask.askerId, targetId: ask.targetId, stage: ask.stage, idx: ask.idx, total: ask.queue.length, queue: ask.queue } : null,
+      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, options: me && ov.nomineeId === me.id ? ov.options : null } : null,
+      accuse: acc ? { speakerId: acc.speakerId, idx: acc.idx, total: acc.queue.length, queue: acc.queue, done: acc.done } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
       clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id && !x.overridden)), checked: labVerdict(me, c) })),
@@ -1043,7 +1009,7 @@
       poll: game.poll ? { finalists: game.poll.finalists } : null,
       defense: game.defense ? { order: game.defense.order, idx: game.defense.idx, speaker: game.defense.order[game.defense.idx] || null } : null,
       verdict: game.verdict,
-      kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role, count: k.count, votes: k.votes })),
+      kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role, count: k.count })),
       results: ended ? game.results : null,
     };
     if (me) {
@@ -1060,8 +1026,7 @@
           reveal: mySpeak && !game.turn.revealed ? volunteerable(game, me) : [],
           locked: mySpeak && !game.turn.revealed ? [...SAFE_TRAITS].filter((t) => !me.revealed[t] && lockedTrait(game, me, t)) : [],
           endturn: mySpeak || (game.phase === PH.DEFENSE && game.defense.order[game.defense.idx] === me.id),
-          ask: !!ask && ask.stage === 'pick' && ask.askerId === me.id && canAct && !game.overlay,
-          answered: !!ask && ask.stage === 'answer' && (ask.targetId === me.id || ask.askerId === me.id) && !isManual(game),
+          endaccuse: !!acc && acc.speakerId === me.id && !isManual(game),
           card: game.phase === PH.TALK && !game.overlay && canAct,
           vote: !!voting && !game.overlay && canAct,
         },
