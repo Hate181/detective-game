@@ -23,13 +23,10 @@ if (PROD) {
 }
 
 // Данные: дела и статистика лежат в JSON-файлах. При первом запуске дела берутся из встроенного архива.
-const readJson = (file, fallback) => { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), 'utf8')); } catch (e) { return fallback; } };
-const writeJson = (file, data) => {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const target = path.join(DATA_DIR, file);
-  fs.writeFileSync(target + '.tmp', JSON.stringify(data, null, 2));
-  fs.renameSync(target + '.tmp', target);
-};
+// Пишутся через vault: права 0600, копия прошлой версии, битый файл не затирается молча.
+const vault = require('./vault.js');
+const readJson = (file, fallback) => { try { return vault.readSafe(path.join(DATA_DIR, file), fallback); } catch (e) { console.error(e.message); return fallback; } };
+const writeJson = (file, data) => vault.writeSafe(path.join(DATA_DIR, file), data, { daily: file === 'stats.json' });
 const cases = readJson('cases.json', null) || JSON.parse(JSON.stringify(Cases.CASES));
 {
   // В сохранённый архив добавляются новые встроенные дела; то, что админ удалил, остаётся удалённым.
@@ -40,7 +37,8 @@ const cases = readJson('cases.json', null) || JSON.parse(JSON.stringify(Cases.CA
   if (m.added || m.refreshed || m.retired) writeJson('cases.json', cases);
   if (!rev || rev.textRev !== m.textRev || rev.packRev !== m.packRev) writeJson('cases-rev.json', { textRev: m.textRev, packRev: m.packRev });
 }
-let stats = readJson('stats.json', null);
+// Статистика с личными кабинетами: битый файл без копии лучше остановить запуск, чем обнулить всем итоги.
+let stats = vault.readSafe(path.join(DATA_DIR, 'stats.json'), null);
 const store = {
   getCases: () => cases,
   saveCases: () => writeJson('cases.json', cases),
@@ -176,6 +174,14 @@ io.on('connection', (socket) => {
       // Писем сайт не шлёт: забывшему пароль админ выдаёт временный, игрок меняет его в кабинете.
       if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
       return auth.resetPassword(payload && payload.email).then((r) => ack(r ? Object.assign({ ok: true }, r) : { ok: false, error: 'Такой почты среди аккаунтов нет.' }), () => ack({ ok: false, error: 'Не получилось.' }));
+    }
+    if (event === 'admin:delete_account') {
+      // По просьбе игрока: аккаунт, имя из профиля, учёт входов и личный кабинет удаляются, входы перестают действовать.
+      if (!hub.isAdmin(token)) return ack({ ok: false, error: 'Нужно войти в админку.' });
+      const r = auth.deleteAccount(payload && payload.email);
+      if (!r) return ack({ ok: false, error: 'Такой почты среди аккаунтов нет.' });
+      if (stats && stats.career && stats.career[r.id]) { delete stats.career[r.id]; writeJson('stats.json', stats); }
+      return ack({ ok: true, name: r.name });
     }
     // Комнаты и вход по коду: лимиты по IP, а не по сокету, иначе переподключение их обнуляет.
     if (event === 'room:create' || event === 'room:join') {

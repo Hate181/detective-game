@@ -82,7 +82,8 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check(sum.total === 2 && sum.byProvider.email === 1 && sum.byProvider.discord === 1, `админка видит 2 аккаунта: ${JSON.stringify(sum.byProvider)}`);
   check(sum.new7 === 2 && sum.online === 1, 'новые за неделю и кто на сайте');
   const mailRow = sum.rows.find((u) => u.provider === 'email');
-  check(mailRow && mailRow.email === 'mira@example.com' && mailRow.name === 'Мира', 'у входа по почте видна почта');
+  check(mailRow && mailRow.email === 'mi••••@example.com' && mailRow.name === 'Мира', `в списке админки почта видна не целиком: ${mailRow && mailRow.email}`);
+  check(!JSON.stringify(sum).includes('mira@example.com'), 'полного адреса в ответе админке нет');
   auth.flushUsers();
 
   // перезапуск: аккаунты читаются с диска
@@ -92,8 +93,55 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check(!!again, 'после перезапуска аккаунт на месте');
   check(auth2.usersSummary().total === 2, 'учёт аккаунтов переживает перезапуск');
 
+  // файлы с данными игроков: только для сервера, с копией прошлой версии и суточным снимком
+  const mode = (f) => fs.statSync(path.join(dir, f)).mode & 0o777;
+  check(['accounts.json', 'users.json', 'accounts.json.bak'].every((f) => mode(f) === 0o600), 'файлы аккаунтов доступны только серверу (0600)');
+  check(fs.readdirSync(path.join(dir, 'backup')).some((f) => /^accounts-\d{4}-\d{2}-\d{2}\.json$/.test(f)), 'есть суточный снимок аккаунтов');
+  check(!fs.readFileSync(path.join(dir, 'accounts.json'), 'utf8').includes(reset.password), 'временный пароль на диск не попадает');
+
+  // удаление аккаунта по просьбе игрока
+  r = await post('/auth/email/register', { email: 'del@example.com', password: 'удалить-меня', name: 'Удалим' });
+  const delCookie = r.cookie;
+  const gone = auth.deleteAccount('DEL@example.com');
+  check(gone && gone.name === 'Удалим' && !auth.accountFrom(delCookie), 'удалённый аккаунт сразу теряет все входы');
+  r = await post('/auth/email/login', { email: 'del@example.com', password: 'удалить-меня' });
+  check(!r.body.ok, 'войти в удалённый аккаунт нельзя');
+  const onDisk = ['accounts.json', 'accounts.json.bak'].concat(fs.readdirSync(path.join(dir, 'backup')).map((f) => 'backup/' + f)).filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes('del@example.com'));
+  check(!onDisk.length, `почты удалённого аккаунта нет ни в файле, ни в копиях: ${onDisk.join(', ') || 'чисто'}`);
+  check(!auth.deleteAccount('del@example.com'), 'повторное удаление ничего не делает');
+
+  // перебор чужих почт через регистрацию упирается в лимит
+  let probe;
+  for (let i = 0; i < 6; i++) probe = await post('/auth/email/register', { email: 'mira@example.com', password: 'что-угодно1', name: 'Проба' });
+  check(probe.status === 429, 'проверять занятость почт через регистрацию можно не больше пяти раз в час');
+
   srv.close();
   fs.rmSync(dir, { recursive: true, force: true });
+
+  // старый хэш (N=16384) усиливается при входе, а входы на других устройствах остаются
+  {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'det-mail-'));
+    const salt = require('crypto').randomBytes(16).toString('hex');
+    const hash = require('crypto').scryptSync('старый-пароль', Buffer.from(salt, 'hex'), 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }).toString('hex');
+    fs.writeFileSync(path.join(d, 'accounts.json'), JSON.stringify({ 'old@example.com': { id: 'ab'.repeat(12), name: 'Старый', salt, hash, v: 1, at: 1 } }));
+    const app2 = express(); const a2 = createAuth({ dataDir: d, port: 0 }); a2.mount(app2);
+    const s2 = app2.listen(0); const b2 = `http://127.0.0.1:${s2.address().port}`;
+    const login = () => fetch(b2 + '/auth/email/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'old@example.com', password: 'старый-пароль' }) });
+    const r1 = await login();
+    const keep = (r1.headers.get('set-cookie') || '').match(/d_sess=[^;]*/)[0];
+    const st = JSON.parse(fs.readFileSync(path.join(d, 'accounts.json'), 'utf8'))['old@example.com'];
+    check(r1.ok && st.n === 32768 && st.hash !== hash && st.salt !== salt, 'старый хэш пересчитан с большей сложностью и новой солью');
+    check(!!a2.accountFrom(keep) && (await login()).ok, 'после усиления вход работает, сессии не сброшены');
+    s2.close();
+    // битый файл: берётся копия, сам файл откладывается, а не затирается
+    fs.writeFileSync(path.join(d, 'accounts.json'), '{"old@example.com": {"id"');
+    const a3 = createAuth({ dataDir: d, port: 0 });
+    check(!!(await a3.resetPassword('old@example.com')) && fs.readdirSync(d).some((f) => f.startsWith('accounts.json.broken-')), 'битый файл аккаунтов отложен, данные подняты из копии');
+    fs.writeFileSync(path.join(d, 'accounts.json'), 'мусор'); fs.rmSync(path.join(d, 'accounts.json.bak'));
+    let threw = false; try { createAuth({ dataDir: d, port: 0 }); } catch (e) { threw = true; }
+    check(threw, 'без копии сервер не стартует с пустыми аккаунтами, чтобы их не затереть');
+    fs.rmSync(d, { recursive: true, force: true });
+  }
   if (fails) { console.log(`\nПровалено: ${fails}`); process.exit(1); }
   console.log('\nВход по почте в порядке');
 })().catch((e) => { console.error(e); process.exit(1); });

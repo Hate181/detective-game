@@ -95,7 +95,10 @@
       <section class="panel" style="max-width:640px"><div class="panel-head"><h2>Сброс пароля</h2></div>
         <p class="muted">Писем сайт не отправляет. Если игрок забыл пароль, впишите его почту: сайт выдаст временный пароль, а все старые входы этого игрока закроются. Передайте пароль игроку лично, пусть сменит его в личном кабинете.</p>
         <div class="row2" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px"><input class="input" id="rpMail" type="email" placeholder="почта игрока" aria-label="Почта игрока"><button class="btn btn-primary" data-a="reset-pass">Сбросить</button></div>
-        <div id="rpOut" style="margin-top:14px"></div></section>`;
+        <div id="rpOut" style="margin-top:14px"></div></section>
+      <section class="panel" style="max-width:640px;margin-top:18px"><div class="panel-head"><h2>Удаление аккаунта</h2></div>
+        <p class="muted">Если игрок попросил удалить свои данные, впишите его почту. Удалятся аккаунт, пароль, имя из профиля и личный кабинет, все его входы закроются. Отменить нельзя.</p>
+        <div class="row2" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px"><input class="input" id="daMail" type="email" placeholder="почта игрока" aria-label="Почта игрока для удаления"><button class="btn btn-red" data-a="delete-acc">Удалить</button></div></section>`;
     },
 
     /* ---------- Тестовая комната ---------- */
@@ -285,6 +288,16 @@
         out.innerHTML = `<div class="resume" style="margin:0"><span>${esc(r.name)} (${esc(r.email)}). Временный пароль: <b class="mono">${esc(r.password)}</b></span><button class="btn btn-sm" data-a="copy-pass">Скопировать</button></div>`;
         this.tempPass = r.password;
       } else if (a === 'copy-pass') UI.copyText(this.tempPass, 'Пароль скопирован');
+      else if (a === 'delete-acc') {
+        const input = this.root.querySelector('#daMail'), mail = input.value.trim();
+        if (!mail) return;
+        if (!(await UI.confirmBox({ title: 'Удалить аккаунт навсегда?', sub: `Аккаунт ${mail}, его имя и личный кабинет пропадут. Вернуть их будет нельзя.`, ok: 'Удалить', danger: true }))) return;
+        const r = await Net.call('admin:delete_account', { email: mail });
+        if (!r.ok) return fail(r);
+        input.value = '';
+        UI.toast(`Аккаунт «${r.name}» удалён`);
+        this.loadUsers();
+      }
       else if (a === 'room') { const r = await Net.call('admin:room', { code: b.dataset.c, action: b.dataset.v }); if (!r.ok) fail(r); else { this.rooms = r.rooms || this.rooms; this.loadRooms(); } }
       else if (a === 'close') { if (await UI.confirmBox({ title: `Закрыть комнату ${b.dataset.c}?`, sub: 'Игроков выкинет в главное меню, партия пропадёт.', ok: 'Закрыть', danger: true })) { const r = await Net.call('admin:room', { code: b.dataset.c, action: 'close' }); if (!r.ok) fail(r); else this.loadRooms(); } }
       else if (a === 'edit') { this.edit = b.dataset.id; this.root.querySelector('#aBody').innerHTML = this.casesHtml(); }

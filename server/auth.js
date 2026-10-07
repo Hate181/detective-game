@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { looksGuest } = require('../public/shared/hub.js');
+const { readSafe, writeSafe, purge, tighten } = require('./vault.js');
 
 const SESSION_COOKIE = 'd_sess';
 const STATE_COOKIE = 'd_oauth';
@@ -55,26 +56,24 @@ function createAuth({ dataDir, port }) {
   }
 
   // Имена, которые игроки сами задали в профиле: по аккаунту, одинаковые на всех устройствах.
+  tighten(dataDir, ['session.key', 'profiles.json', 'accounts.json', 'users.json', 'stats.json']);
   const PROFILES = path.join(dataDir, 'profiles.json');
-  let profiles = Object.create(null);
-  try { Object.assign(profiles, JSON.parse(fs.readFileSync(PROFILES, 'utf8'))); } catch (e) { /* ещё нет */ }
-  const saveProfiles = () => {
-    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(PROFILES + '.tmp', JSON.stringify(profiles)); fs.renameSync(PROFILES + '.tmp', PROFILES); } catch (e) { console.error('profiles', e.message); }
-  };
+  const profiles = Object.assign(Object.create(null), readSafe(PROFILES, {}));
+  const saveProfiles = () => { try { writeSafe(PROFILES, profiles); } catch (e) { console.error('profiles', e.message); } };
   // Аккаунты по почте: почта, соль и хэш пароля (scrypt). Писем сайт не отправляет, сброс пароля делает админ.
+  // Файл только для сервера (0600), с копией прошлой версии и суточными снимками: потерять аккаунты хуже, чем упасть.
   const ACCOUNTS = path.join(dataDir, 'accounts.json');
-  let accounts = Object.create(null);
-  try { Object.assign(accounts, JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8'))); } catch (e) { /* ещё нет */ }
+  const accounts = Object.assign(Object.create(null), readSafe(ACCOUNTS, {}));
   const byId = new Map(Object.entries(accounts).map(([mail, a]) => [a.id, mail]));
-  const saveAccounts = () => {
-    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(ACCOUNTS + '.tmp', JSON.stringify(accounts), { mode: 0o600 }); fs.renameSync(ACCOUNTS + '.tmp', ACCOUNTS); } catch (e) { console.error('accounts', e.message); }
-  };
+  const saveAccounts = () => { try { writeSafe(ACCOUNTS, accounts, { daily: true }); } catch (e) { console.error('accounts', e.message); } };
   const cleanMail = (v) => { const m = String(typeof v === 'string' ? v : '').trim().toLowerCase(); return m.length <= 200 && /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(m) ? m : null; };
-  const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-  const hashPass = (pass, salt) => new Promise((ok, no) => crypto.scrypt(String(pass), Buffer.from(salt, 'hex'), 64, SCRYPT, (e, k) => (e ? no(e) : ok(k.toString('hex')))));
-  // Хэш пароля дорогой (16 МБ памяти и заметное время), поэтому одновременно считаем немного,
+  // Сложность хэша хранится у каждого аккаунта: старые хэши (N=16384) усиливаются при следующем входе.
+  const SCRYPT_N = 32768, OLD_N = 16384;
+  const hashPass = (pass, salt, N = SCRYPT_N) => new Promise((ok, no) => crypto.scrypt(String(pass), Buffer.from(salt, 'hex'), 64, { N, r: 8, p: 1, maxmem: 96 * 1024 * 1024 }, (e, k) => (e ? no(e) : ok(k.toString('hex')))));
+  const nOf = (a) => (a && a.n) || OLD_N;
+  // Хэш пароля дорогой (32 МБ памяти и заметное время), поэтому одновременно считаем немного,
   // а с одного адреса не больше двух сразу: иначе волна запросов на вход положит сервер.
-  const HASH_MAX = 6, busy = new Map();
+  const HASH_MAX = 4, busy = new Map();
   let hashing = 0;
   async function gated(ip, fn) {
     const mine = busy.get(ip) || 0;
@@ -102,12 +101,11 @@ function createAuth({ dataDir, port }) {
 
   // Учёт аккаунтов для админки: кто и когда впервые вошёл, когда заходил последний раз.
   const USERS = path.join(dataDir, 'users.json');
-  let users = Object.create(null);
-  try { Object.assign(users, JSON.parse(fs.readFileSync(USERS, 'utf8'))); } catch (e) { /* ещё нет */ }
+  const users = Object.assign(Object.create(null), readSafe(USERS, {}));
   let usersDirty = false;
   const saveUsers = () => {
     if (!usersDirty) return; usersDirty = false;
-    try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(USERS + '.tmp', JSON.stringify(users)); fs.renameSync(USERS + '.tmp', USERS); } catch (e) { console.error('users', e.message); }
+    try { writeSafe(USERS, users); } catch (e) { console.error('users', e.message); }
   };
   setInterval(saveUsers, 10e3).unref();
   /** Отметить аккаунт: первый вход создаёт запись, следующие обновляют время и имя. */
@@ -219,12 +217,13 @@ function createAuth({ dataDir, port }) {
       if (!mail) return res.status(400).json({ ok: false, field: 'email', error: 'Проверьте почту.' });
       if (!passOk(b.password)) return res.status(400).json({ ok: false, field: 'password', error: 'Пароль от 8 до 128 знаков.' });
       if (!name) return res.status(400).json({ ok: false, field: 'name', error: 'Имя в игре от 2 до 18 знаков.' });
-      if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
+      // Лимит раньше проверки занятости: перебирать чужие почты через регистрацию можно не чаще пяти раз в час.
       if (regLimited(req.ip)) return res.status(429).json({ ok: false, error: 'Слишком много регистраций. Попробуйте через час.' });
+      if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = await gated(req.ip, () => hashPass(b.password, salt));
       if (!hash) return res.status(503).json(BUSY);
-      const a = { id: crypto.randomBytes(12).toString('hex'), name, salt, hash, v: 1, at: Date.now() };
+      const a = { id: crypto.randomBytes(12).toString('hex'), name, salt, hash, n: SCRYPT_N, v: 1, at: Date.now() };
       if (accounts[mail]) return res.status(409).json({ ok: false, field: 'email', error: 'Эта почта уже зарегистрирована. Войдите.' });
       accounts[mail] = a; byId.set(a.id, mail); saveAccounts();
       startSession(req, res, a);
@@ -238,10 +237,17 @@ function createAuth({ dataDir, port }) {
       if (locked('ip:' + req.ip) || (mail && locked('mail:' + mail))) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
       const a = mail && accounts[mail];
       // Без аккаунта считаем хэш впустую, чтобы по времени ответа нельзя было узнать, есть ли такая почта.
-      const got = await gated(req.ip, () => hashPass(typeof b.password === 'string' ? b.password.slice(0, 128) : '', a ? a.salt : '00'.repeat(16)));
+      const pass = typeof b.password === 'string' ? b.password.slice(0, 128) : '';
+      const got = await gated(req.ip, () => hashPass(pass, a ? a.salt : '00'.repeat(16), a ? nOf(a) : SCRYPT_N));
       if (!got) return res.status(503).json(BUSY);
       const good = !!a && crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'));
       if (!good) { failed('ip:' + req.ip); if (mail) failed('mail:' + mail); return res.status(401).json({ ok: false, error: 'Неверная почта или пароль.' }); }
+      // Старый, более слабый хэш тихо пересчитываем с новой солью: входы на других устройствах не сбрасываются.
+      if (nOf(a) < SCRYPT_N) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const fresh = await gated(req.ip, () => hashPass(pass, salt));
+        if (fresh && accounts[mail] === a) { a.salt = salt; a.hash = fresh; a.n = SCRYPT_N; saveAccounts(); }
+      }
       startSession(req, res, a);
       res.json({ ok: true });
     });
@@ -254,14 +260,14 @@ function createAuth({ dataDir, port }) {
       const mail = byId.get(acc.id.slice(6)), a = accounts[mail];
       const b = req.body || {};
       if (locked('mail:' + mail)) return res.status(429).json({ ok: false, error: 'Слишком много попыток. Попробуйте через 15 минут.' });
-      const got = await gated(req.ip, () => hashPass(typeof b.old === 'string' ? b.old.slice(0, 128) : '', a.salt));
+      const got = await gated(req.ip, () => hashPass(typeof b.old === 'string' ? b.old.slice(0, 128) : '', a.salt, nOf(a)));
       if (!got) return res.status(503).json(BUSY);
       if (!crypto.timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(a.hash, 'hex'))) { failed('mail:' + mail); return res.status(401).json({ ok: false, field: 'old', error: 'Старый пароль не подошёл.' }); }
       if (!passOk(b.password)) return res.status(400).json({ ok: false, field: 'password', error: 'Новый пароль от 8 до 128 знаков.' });
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = await gated(req.ip, () => hashPass(b.password, salt));
       if (!hash) return res.status(503).json(BUSY);
-      a.salt = salt; a.hash = hash; a.v += 1; saveAccounts();
+      a.salt = salt; a.hash = hash; a.n = SCRYPT_N; a.v += 1; saveAccounts();
       startSession(req, res, a);
       res.json({ ok: true });
     });
@@ -329,9 +335,26 @@ function createAuth({ dataDir, port }) {
     const mail = cleanMail(email), a = mail && accounts[mail];
     if (!a) return null;
     const temp = crypto.randomBytes(9).toString('base64url');
-    a.salt = crypto.randomBytes(16).toString('hex'); a.hash = await hashPass(temp, a.salt); a.v += 1; saveAccounts();
+    a.salt = crypto.randomBytes(16).toString('hex'); a.hash = await hashPass(temp, a.salt); a.n = SCRYPT_N; a.v += 1; saveAccounts();
     return { email: mail, name: a.name, password: temp };
   }
+
+  /** Для админки: удалить аккаунт по почте по просьбе игрока. Его входы сразу перестают действовать. */
+  function deleteAccount(email) {
+    const mail = cleanMail(email), a = mail && accounts[mail];
+    if (!a) return null;
+    const id = 'email:' + a.id;
+    delete accounts[mail]; byId.delete(a.id); saveAccounts();
+    delete profiles[id]; saveProfiles();
+    delete users[id]; usersDirty = true; saveUsers();
+    // Из резервной копии и суточных снимков тоже, иначе почта и хэш пароля пролежали бы там ещё две недели.
+    const without = (key) => (data) => { if (!data || !Object.prototype.hasOwnProperty.call(data, key)) return false; delete data[key]; return true; };
+    try { purge(ACCOUNTS, without(mail)); purge(PROFILES, without(id)); purge(USERS, without(id)); } catch (e) { console.error('purge', e.message); }
+    return { id, name: a.name };
+  }
+
+  /** Почта в списке админки видна не целиком: полный адрес нужен только для сброса, и его называет сам игрок. */
+  const maskMail = (m) => { if (!m) return ''; const [u, d] = m.split('@'); return `${u.slice(0, 2)}••••@${d}`; };
 
   /** Для админки: сколько аккаунтов и последние регистрации. Почта видна только у входа по почте. */
   function usersSummary(online = new Set()) {
@@ -341,7 +364,7 @@ function createAuth({ dataDir, port }) {
     const by = {};
     list.forEach(([, u]) => { by[u.p] = (by[u.p] || 0) + 1; });
     const rows = list.sort((a, b) => b[1].first - a[1].first).slice(0, 50).map(([id, u]) => ({
-      name: profiles[id] || u.n, provider: u.p, email: mailOf.get(id) || '', first: u.first, last: u.last, online: online.has(id),
+      name: profiles[id] || u.n, provider: u.p, email: maskMail(mailOf.get(id)), first: u.first, last: u.last, online: online.has(id),
     }));
     return {
       total: list.length, byProvider: by,
@@ -352,7 +375,7 @@ function createAuth({ dataDir, port }) {
     };
   }
 
-  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword, touchUser, usersSummary, flushUsers: () => { usersDirty = true; saveUsers(); } };
+  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword, deleteAccount, touchUser, usersSummary, flushUsers: () => { usersDirty = true; saveUsers(); } };
 }
 
 module.exports = { createAuth };
