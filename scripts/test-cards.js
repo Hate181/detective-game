@@ -105,7 +105,13 @@ for (const n of [6, 7, 8, 9, 10]) {
     if (!t1 || !t2) continue;
     const next = game.clues.find((c) => c.revealedRound === null);
     const origText = next.text;
+    const seen = E.swapTargets(game, game.players[h2]).join();
+    const rngBefore = JSON.stringify(game.rng);
+    game.order.forEach((id) => E.view(game, id));
+    const rngQuiet = JSON.stringify(game.rng) === rngBefore;
     if (!E.act(game, h1, 'card', { type: 'swap', target: t1 }, st.now += 10).ok) continue;
+    check(E.swapTargets(game, game.players[h2]).join() === seen, 'второй держатель «Подмены» по списку целей не видит, что первую уже сыграли');
+    check(rngQuiet, 'показ экрана игрокам не сдвигает случай партии');
     const firstTag = next.tag;
     if (!E.act(game, h2, 'card', { type: 'swap', target: t2 }, st.now += 10).ok) continue;
     done = true;

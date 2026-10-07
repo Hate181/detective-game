@@ -283,14 +283,14 @@
   const toVote = (game, now) => startVote(game, now, isFinale(game) ? 'poll' : 'kick');
 
   /* «Назад» у ведущего. Рассказы, обсуждение и обвинительные минуты листаются шагами, и каждый шаг можно вернуть,
-     пока после него никто не сыграл карту и не случилось ничего, кроме раскрытия по своему выбору.
+     пока после него ничего не случилось: никто ничего не раскрыл и не сыграл карту.
      Случайно пропущенный игрок получает слово обратно, а то, что за него открылось само, снова закрывается. */
   const UNDO_PHASES = [PH.TURNS, PH.TALK, PH.ACCUSE];
   const lastFeedId = (game) => (game.feed.length ? game.feed[game.feed.length - 1].id : 0);
   const copy = (o) => (o ? JSON.parse(JSON.stringify(o)) : o);
   function stepped(game, now, fn) {
     const snap = UNDO_PHASES.includes(game.phase) && !game.overlay ? {
-      phase: game.phase, turn: copy(game.turn), accuse: copy(game.accuse), seqBefore: lastFeedId(game),
+      phase: game.phase, turn: copy(game.turn), accuse: copy(game.accuse), seqBefore: lastFeedId(game), rng: copy(Object.assign({}, game.rng)),
       rev: game.order.map((id) => [id, Object.assign({}, game.players[id].revealed), !!game.players[id].secretRevealed]),
     } : null;
     fn();
@@ -303,12 +303,15 @@
     const u = game.undo;
     if (!u || !u.length || game.overlay || !UNDO_PHASES.includes(game.phase)) return false;
     const top = u[u.length - 1];
-    return game.feed.every((f) => f.id <= top.seqAfter || (f.kind === 'reveal' && f.how === 'choice'));
+    // Отменять чужое раскрытие нельзя: все его уже видели, а откат дал бы открыть вторую характеристику.
+    return lastFeedId(game) === top.seqAfter;
   }
   function undoStep(game, now) {
     const s = game.undo.pop();
     game.feed = game.feed.filter((f) => f.id <= s.seqBefore);
     s.rev.forEach(([id, rev, sec]) => { const p = game.players[id]; p.revealed = rev; p.secretRevealed = sec; });
+    // Случай тоже откатывается: «Назад» и снова «Дальше» откроют за пропущенного то же самое, перебором карточку не вытянуть.
+    Object.assign(game.rng, s.rng);
     game.turn = s.turn;
     game.accuse = s.accuse;
     game.phase = s.phase;
@@ -605,10 +608,7 @@
       p.goalDone = done;
       if (done) add(id, 'Личная цель выполнена', 3);
     });
-    // Голосовавшие против убийцы (один раз на человека)
-    const guessed = new Set();
-    game.suspicions.forEach((s) => { if ((s.target === game.killerId || (game.gang && s.target === game.accompliceId)) && P(game, s.by).role === 'innocent') guessed.add(s.by); });
-    guessed.forEach((id) => add(id, game.gang ? 'Голосовал против преступников' : 'Голосовал против убийцы', 2));
+    // Очков за голос против преступника нет: голосование анонимное, и строка в итогах выдала бы, кто как голосовал.
     // Сообщник
     const accChoice = game.accompliceChoice;
     if (game.accompliceId && accChoice) {
@@ -636,7 +636,7 @@
       gang: !!game.gang, winner, reason: game.verdict.reason, kickedId: game.verdict.kickedId, killerId: game.killerId, accompliceId: game.accompliceId,
       scene: game.scene, murderTime: game.caseData.time, window: P(game, game.killerId).card.alibi.window,
       score: total, items, rank, awards, chronology, minutes: Math.max(1, Math.round((game.endedAt - game.startedAt) / 60000)),
-      plants: game.plants, accompliceChoice: accChoice || null, sherlockId: findSherlock(game),
+      plants: game.plants, accompliceChoice: accChoice || null, 
       clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
       kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role })),
       votes: game.votesLog.map((x) => ({ round: x.round, kind: x.kind, runoff: x.runoff, count: x.count, skipped: x.auto.length })), rounds: game.round,
@@ -659,8 +659,6 @@
       const l = liars[0];
       out.push({ id: 'liar', title: Content.AWARDS.liar.title, playerId: l.id, text: `Алиби «${l.card.alibi.claim.loc}» никто не опроверг` });
     }
-    const sh = findSherlock(game);
-    if (sh) out.push({ id: 'sherlock', title: Content.AWARDS.sherlock.title, playerId: sh, text: 'Первым указал на убийцу' });
     const k = P(game, game.killerId);
     const matches = game.clues.filter((c) => !c.planted && shownTags(k).includes(c.tag)).length;
     if (matches >= 3) out.push({ id: 'self', title: Content.AWARDS.self.title, playerId: k.id, text: `Открытых совпадений с уликами: ${matches} из 4` });
@@ -716,6 +714,7 @@
       bad('Неизвестная кнопка.');
     }
     if (pl.do === 'back') {
+      if (pl.step != null && pl.step !== game.step) bad('Шаг уже вернули.');
       if (!canUndo(game)) bad('Этот шаг уже не вернуть: после него сыграли карту или сменилась фаза.');
       return undoStep(game, now);
     }
@@ -856,14 +855,17 @@
   const nextClue = (game) => game.clues.find((c) => c.revealedRound === null) || null;
 
   /** Метка для подмены: есть у цели, нет у того, кто подменяет, и не повторяет другие улики. */
+  const hash01 = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return (h >>> 0) / 4294967296; };
   function pickSwapTag(game, target, by) {
-    // Не повторять метки других улик и не возвращать настоящую метку уже подменённой.
-    const used = new Set(game.clues.flatMap((c) => (c.orig ? [c.tag, c.orig.tag] : [c.tag])));
+    // Не повторять метки других улик и не возвращать настоящую метку уже подменённой. Метку ещё не найденной подменённой
+    // улики не учитываем: иначе по списку целей второй держатель «Подмены» понял бы, что её уже сыграли и на кого.
+    const used = new Set(game.clues.map((c) => (c.orig ? c.orig.tag : c.tag)).concat(game.clues.filter((c) => c.revealedRound !== null).map((c) => c.tag)));
     const options = target.card.tags.filter((t) => !used.has(t) && !by.card.tags.includes(t));
     if (!options.length) return null;
     const scored = options.map((t) => {
       const h = game.order.filter((id) => P(game, id).card.tags.includes(t)).length;
-      return { t, s: (h >= 2 && h <= 3 ? 0 : 1) + game.rng.next() * 0.1 };
+      // Ничья решается хэшем, а не общим генератором: подсказка в интерфейсе не должна сдвигать случай партии.
+      return { t, s: (h >= 2 && h <= 3 ? 0 : 1) + hash01(`${game.seed}:${target.id}:${t}`) * 0.1 };
     }).sort((a, b) => a.s - b.s);
     return scored[0].t;
   }
@@ -1020,7 +1022,9 @@
     const ended = game.phase === PH.ENDED;
     // Чью роль видит зритель: свою, напарника-преступника, выбывших (только в лайте) и всех, когда дело решено.
     const decided = ended || game.phase === PH.VERDICT || game.phase === PH.ACCOMPLICE;
-    const knows = (id) => { const p = game.players[id]; return decided || id === viewerId || (p.status === 'out' && !hideRoles(game)) || !!(me && me.role !== 'innocent' && p.role !== 'innocent'); };
+    // Без банды после победы невиновных у сообщника ещё последний ход: пока он не сделан, сообщник остаётся тайной.
+    const accLeft = !game.gang && game.accompliceId && game.verdict && game.verdict.winner === 'innocent' && P(game, game.accompliceId).status === 'active' && !ended;
+    const knows = (id) => { const p = game.players[id]; return (decided && !(accLeft && id === game.accompliceId)) || id === viewerId || (p.status === 'out' && !hideRoles(game)) || !!(me && me.role !== 'innocent' && p.role !== 'innocent'); };
     const voting = VOTE_PHASES.includes(game.phase) && game.vote;
     const turn = game.turn && game.phase === PH.TURNS ? game.turn : null;
     const acc = game.accuse && game.phase === PH.ACCUSE ? game.accuse : null;

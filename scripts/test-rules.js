@@ -241,9 +241,14 @@ function start(rules) {
   check(Object.keys(game.players[b].revealed).sort().join() === bRev && !game.turn.revealed, 'случайно открытое у пропущенного снова закрыто, он выбирает сам');
   check(!game.feed.some((f) => f.who === c && f.kind === 'turn' && f.text.startsWith('Слово')) || game.feed.filter((f) => f.who === c && f.kind === 'turn').length === 0, 'лишние строки в журнале убраны');
   check(back().ok && game.turn.speakerId === a, 'можно вернуться ещё на шаг');
-  E.act(game, a, 'reveal', { trait: E.view(game, a).me.can.reveal[0] }, now += 10);
-  check(next(game.step).ok && game.turn.speakerId === b, 'дальше снова по порядку');
-  check(back().ok && game.turn.speakerId === a && game.turn.revealed, '«Назад» после раскрытия по выбору вернул слово, раскрытие сохранено');
+  // Перебором «Назад/Дальше» карточку пропущенного не вытянуть: за него открывается одно и то же.
+  const rolls = new Set();
+  for (let i = 0; i < 6; i++) { next(game.step); rolls.add(Object.keys(game.players[a].revealed).sort().join()); back(); }
+  check(rolls.size === 1 && game.turn.speakerId === a, 'повторные «Дальше/Назад» открывают за пропущенного одно и то же');
+  check(!E.act(game, 'p0', 'host', { do: 'back', step: game.step - 1 }, now += 10).ok, 'опоздавшее второе «Назад» не откатывает лишний шаг');
+  next(game.step);
+  E.act(game, b, 'reveal', { trait: E.view(game, b).me.can.reveal[0] }, now += 10);
+  check(!back().ok && game.turn.speakerId === b && game.turn.revealed, 'после того как игрок сам что-то открыл, шаг не вернуть');
   // Обсуждение: после сыгранной карты вернуться нельзя.
   for (let i = 0; i < 10 && game.phase === PH.TURNS; i++) next(game.step);
   check(game.phase === PH.TALK && back().ok && game.phase === PH.TURNS, 'из обсуждения можно вернуться к последнему рассказу');

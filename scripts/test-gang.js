@@ -83,6 +83,8 @@ for (const n of [6, 7, 8, 10]) {
   while (game.phase !== PH.ENDED) E.skip(game, st.now += 1000);
   check(!game.accompliceChoice, 'последнего шанса сообщника нет, он уже исключён');
   check(game.results.winner === 'innocent', 'итоги записаны');
+  const items = JSON.stringify(game.results.items || {});
+  check(!/Голосовал/.test(items) && !game.results.awards.some((a) => a.id === 'sherlock') && !('sherlockId' in game.results), 'в итогах нет очков и наград за то, против кого голосовал игрок');
 }
 
 {
@@ -152,6 +154,19 @@ for (const n of [6, 7, 8, 10]) {
   check(sim.errors.length === 0 && sim.violations.length === 0, `6 ботов: 30 партий без ошибок (побед невиновных ${sim.innocentWins})`);
   const sim10 = E.simulate({ caseData: Cases.CASES[7], games: 30, players: 10, seed: 4 });
   check(sim10.errors.length === 0 && sim10.violations.length === 0, `10 ботов: 30 партий без ошибок (побед невиновных ${sim10.innocentWins})`);
+}
+
+{
+  // Без банды: после победы невиновных у сообщника последний ход, и до него сообщник остаётся тайной
+  const st = start(8, { gang: false });
+  const { game } = st;
+  toVote(st, ['kick']);
+  voteFor(st, game.killerId);
+  for (let i = 0; i < 20 && game.phase !== PH.ACCOMPLICE && game.phase !== PH.ENDED; i++) E.skip(game, st.now += 1000);
+  const viewer = game.order.find((id) => game.players[id].role === 'innocent');
+  check(game.phase === PH.ACCOMPLICE && E.view(game, viewer).players.find((p) => p.id === game.accompliceId).role === null, 'без банды: пока сообщник делает последний ход, его роль скрыта');
+  while (game.phase !== PH.ENDED) E.skip(game, st.now += 1000);
+  check(E.view(game, viewer).players.find((p) => p.id === game.accompliceId).role === 'accomplice', 'без банды: в конце дела сообщник раскрыт');
 }
 
 console.log(fails ? `провалов: ${fails}` : 'банда в порядке');

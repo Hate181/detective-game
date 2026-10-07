@@ -554,7 +554,7 @@
       if (a === 'accomplice') return this.act('accomplice', { mode: b.dataset.mode, target: b.dataset.id });
       if (a === 'card') return this.playCard(b.dataset.type);
       if (a === 'hnext') return this.act('host', { do: 'next', step: g.step });
-      if (a === 'hback') return this.act('host', { do: 'back' });
+      if (a === 'hback') return this.act('host', { do: 'back', step: g.step });
       if (a === 'hext') return this.act('host', { do: 'extend' });
       if (a === 'hclock') return this.act('host', { do: 'clock', op: b.dataset.v });
       if (a === 'hmode') { const r = await Net.call('room:setting', { key: 'mode', value: g.manual ? 'timers' : 'host' }); if (!r.ok) fail(r); return; }
