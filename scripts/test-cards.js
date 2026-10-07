@@ -63,10 +63,11 @@ for (const n of [6, 7, 8, 9, 10]) {
   const target = targets[0];
   const before = game.clues.map((c) => c.tag).join();
   const feedLen = game.feed.length;
+  const next = game.clues.find((c) => c.revealedRound === null);
   const r = E.act(game, holder, 'card', { type: 'swap', target }, st.now += 10);
   check(r.ok, 'подмена сыграна');
   const sw = game.clues.find((c) => c.planted);
-  check(!!sw && sw.revealedRound === null && game.clues.length === 4, 'подменена одна из ещё не найденных улик, всего улик по-прежнему четыре');
+  check(!!sw && sw === next && game.clues.filter((c) => c.planted).length === 1 && game.clues.length === 4, 'подменена именно следующая улика, всего улик по-прежнему четыре');
   check(sw.fits.includes(target) && !sw.fits.includes(holder) && sw.orig && sw.orig.tag !== sw.tag && before !== game.clues.map((c) => c.tag).join(), 'новая улика подходит цели и не подходит тому, кто подменил');
   check(game.feed.length === feedLen, 'в журнале о подмене ни слова');
   const other = game.order.find((id) => id !== holder && id !== target);
@@ -82,11 +83,40 @@ for (const n of [6, 7, 8, 9, 10]) {
     const vh = E.view(game, holder).clues.find((c) => c.id === sw.id);
     check(vo && !vo.planted && !vo.mine && /Найдена улика/.test(game.feed.filter((f) => f.clueId === sw.id).map((f) => f.text).join()), 'подменённая улика пришла как обычная: остальные её не отличат');
     check(vh && vh.mine, 'у того, кто подменил, на улике пометка «подменена вами»');
+    check(sw.revealedRound === 2, 'подменённую улику нашли в следующем же раунде');
   } else check(false, 'подменённая улика так и не была найдена');
   toPhase(st, [PH.ENDED]);
   if (game.phase !== PH.ENDED) { for (let i = 0; i < 400 && game.phase !== PH.ENDED; i++) { if (game.overlay) clearOv(st); else E.skip(game, st.now += 1000); } }
   const rc = game.results.clues.find((c) => c.id === sw.id);
   check(rc && rc.planted && rc.orig && rc.orig.text && game.results.plants.some((p) => p.by === holder && p.targetId === target), 'в итогах видно, кто подменил, против кого и какая была настоящая улика');
+}
+
+{
+  // Две подмены за один раунд: обе бьют в следующую улику, остаётся последняя, настоящая улика сохраняется
+  let done = false;
+  for (let seed = 1; seed < 60 && !done; seed++) {
+    const st = start(8, seed);
+    const { game } = st;
+    const hs = game.order.filter((id) => has(game, id, 'swap'));
+    if (hs.length < 2 || !toPhase(st, [PH.TALK]) || game.round !== 1) continue;
+    const [h1, h2] = hs;
+    const t1 = E.swapTargets(game, game.players[h1]).find((id) => id !== h2);
+    const t2 = E.swapTargets(game, game.players[h2]).find((id) => id !== h1 && id !== t1);
+    if (!t1 || !t2) continue;
+    const next = game.clues.find((c) => c.revealedRound === null);
+    const origText = next.text;
+    if (!E.act(game, h1, 'card', { type: 'swap', target: t1 }, st.now += 10).ok) continue;
+    const firstTag = next.tag;
+    if (!E.act(game, h2, 'card', { type: 'swap', target: t2 }, st.now += 10).ok) continue;
+    done = true;
+    check(game.clues.filter((c) => c.planted).length === 1 && next.planted, 'обе подмены попали в одну и ту же следующую улику');
+    check(next.fits.includes(t2) && !next.fits.includes(h2) && next.tag !== firstTag, 'улика указывает на цель второй подмены');
+    check(next.orig.text === origText && next.tag !== next.orig.tag, 'настоящая улика сохранена от первой подмены и не вернулась');
+    check(game.plants[0].overridden && !game.plants[1].overridden, 'первая подмена помечена как перебитая');
+    for (let i = 0; i < 200 && next.revealedRound === null; i++) { if (game.overlay) clearOv(st); else E.skip(game, st.now += 1000); }
+    check(!E.view(game, h1).clues.find((c) => c.id === next.id).mine && E.view(game, h2).clues.find((c) => c.id === next.id).mine, 'пометку «подменена вами» видит только автор последней подмены');
+  }
+  check(done, 'нашлась партия с двумя подменами в первом раунде');
 }
 
 {

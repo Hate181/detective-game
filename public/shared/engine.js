@@ -593,7 +593,7 @@
     const k = P(game, game.killerId);
     const matches = game.clues.filter((c) => !c.planted && shownTags(k).includes(c.tag)).length;
     if (matches >= 3) out.push({ id: 'self', title: Content.AWARDS.self.title, playerId: k.id, text: `Открытых совпадений с уликами: ${matches} из 4` });
-    const pl = game.plants.find((x) => P(game, x.targetId).role === 'innocent' && game.kicks.some((a) => a.id === x.targetId && a.round >= x.round));
+    const pl = game.plants.find((x) => !x.overridden && P(game, x.targetId).role === 'innocent' && game.kicks.some((a) => a.id === x.targetId && a.round >= x.round));
     if (pl) out.push({ id: 'framer', title: Content.AWARDS.framer.title, playerId: pl.by, text: `Подменённая улика привела к исключению игрока ${nm(game, pl.targetId)}` });
     return out;
   }
@@ -741,19 +741,20 @@
       [t, t2].filter((x) => !x.revealed[pl.trait]).forEach((x) => publicReveal(game, now, x, pl.trait, 'confront'));
     } else if (type === 'swap') {
       if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока.');
-      const pool = swapPool(game);
-      if (!pool.length) bad('Подменять уже нечего: все улики найдены.');
+      // Подменяется именно та улика, которую найдут следующей. Если её уже подменили, побеждает последняя подмена.
+      const clue = nextClue(game);
+      if (!clue) bad('Подменять уже нечего: все улики найдены.');
       const tag = pickSwapTag(game, t, p);
       if (!tag) bad('У этого игрока не за что зацепиться. Выберите другого.');
-      const clue = game.rng.pick(pool);
       const no = game.clues.indexOf(clue) + 1;
-      clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
+      if (!clue.orig) clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
+      game.plants.forEach((x) => { if (x.clueId === clue.id) x.overridden = true; });
       clue.tag = tag;
       clue.text = game.rng.pick(Content.clueTexts(game.caseData, tag));
       clue.fits = game.order.filter((id) => P(game, id).card.tags.includes(tag));
       clue.planted = true;
       game.plants.push({ by: p.id, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
-      p.notes.push({ t: now, round: game.round, kind: 'swap', targetId: t.id, trait: null, text: `Улика ${no} подменена. Когда её найдут, она укажет на игрока ${t.name}.` });
+      p.notes.push({ t: now, round: game.round, kind: 'swap', targetId: t.id, trait: null, text: `Следующая улика (${no}) подменена. Когда её найдут, она укажет на игрока ${t.name}.` });
     } else if (type === 'lab') {
       // Экспертиза: правдивая ли найденная улика или её подменили картой «Подмена улики».
       const clue = game.clues.find((c) => c.id === pl.clueId && c.revealedRound !== null);
@@ -769,12 +770,13 @@
   /** Что игрок узнал об улике «Экспертизой»: 'fake', 'real' или null. */
   const labVerdict = (me, c) => { const n = me && me.notes.find((x) => x.kind === 'lab' && x.clueId === c.id); return n ? (n.fake ? 'fake' : 'real') : null; };
 
-  /** Какие улики ещё можно подменить: не найденные и не подменённые раньше. */
-  const swapPool = (game) => game.clues.filter((c) => c.revealedRound === null && !c.planted);
+  /** Улика, которую найдут следующей: её и подменяет «Подмена улики». */
+  const nextClue = (game) => game.clues.find((c) => c.revealedRound === null) || null;
 
   /** Метка для подмены: есть у цели, нет у того, кто подменяет, и не повторяет другие улики. */
   function pickSwapTag(game, target, by) {
-    const used = new Set(game.clues.map((c) => c.tag));
+    // Не повторять метки других улик и не возвращать настоящую метку уже подменённой.
+    const used = new Set(game.clues.flatMap((c) => (c.orig ? [c.tag, c.orig.tag] : [c.tag])));
     const options = target.card.tags.filter((t) => !used.has(t) && !by.card.tags.includes(t));
     if (!options.length) return null;
     const scored = options.map((t) => {
@@ -786,7 +788,7 @@
 
   /** На кого игрок может навести подменённую улику: подсказка для интерфейса и ботов. */
   function swapTargets(game, p) {
-    if (!swapPool(game).length) return [];
+    if (!nextClue(game)) return [];
     return active(game).filter((t) => t.id !== p.id && pickSwapTag(game, t, p)).map((t) => t.id);
   }
 
@@ -962,7 +964,7 @@
       players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, voters: ov.voters || [], options: me && ov.nomineeId === me.id ? ov.options : null } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
-      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id)), checked: labVerdict(me, c) })),
+      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id && !x.overridden)), checked: labVerdict(me, c) })),
       feed: game.feed.slice(-160).map((f) => ({ id: f.id, t: f.t, kind: f.kind, text: f.text, who: f.who, clueId: f.clueId, trait: f.trait })),
       poll: game.poll ? { finalists: game.poll.finalists } : null,
       defense: game.defense ? { order: game.defense.order, idx: game.defense.idx, speaker: game.defense.order[game.defense.idx] || null } : null,

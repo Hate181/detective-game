@@ -162,7 +162,7 @@
     },
 
     clues(R, g, nm) {
-      const planted = {}; (R.plants || []).forEach((p) => { planted[p.clueId] = p; });
+      const planted = {}; (R.plants || []).filter((p) => !p.overridden).forEach((p) => { planted[p.clueId] = p; });
       return `<div class="clues">${R.clues.map((c, i) => `<article class="paper clue"><span class="no">Улика ${i + 1}${c.planted ? ' · подменена' : ''}</span><p>${esc(c.text)}</p>
         <div class="fits"><span class="tagname">${esc(Content_label(c.tag))}</span><span>подходит: ${esc(c.fits.map(nm).join(', '))}</span></div>
         ${c.planted && planted[c.id] ? `<div class="fits" style="margin-top:6px"><span>Подменил игрок ${esc(nm(planted[c.id].by))}, чтобы указать на игрока ${esc(nm(planted[c.id].targetId))}.${c.orig ? ` Настоящая улика: ${esc(c.orig.text)}` : ''}</span></div>` : ''}</article>`).join('')}</div>`;
