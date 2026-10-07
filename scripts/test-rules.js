@@ -137,5 +137,57 @@ function start(rules) {
   check(game.kicks[game.kicks.length - 1].via === 'random', 'в итогах отмечено: решила полиция');
 }
 
+{
+  // Допрос: после обсуждения по очереди рассказов каждый задаёт один вопрос одному игроку, потом голосование
+  for (const mode of ['timers', 'host']) {
+    const players = Array.from({ length: 6 }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
+    const game = E.createGame({ caseData: Cases.CASES[0], players, seed: 11, now: 1000, hostId: 'p0', settings: { mode } });
+    let now = 1000;
+    E.act(game, game.killerId, 'alibi', { loc: game.caseData.locations.find((l) => l !== game.scene) }, now);
+    for (let i = 0; i < 20 && game.phase !== PH.TALK; i++) E.skip(game, now += 1000);
+    const turnQueue = game.turn.queue.slice();
+    E.skip(game, now += 1000);
+    check(game.phase === PH.QUESTION && game.ask.stage === 'pick', `${mode}: после обсуждения начинается допрос`);
+    check(game.ask.queue.join() === turnQueue.join() && game.ask.askerId === turnQueue[0], `${mode}: спрашивают в том же порядке, что и рассказывали`);
+    const a0 = game.ask.askerId, other = turnQueue[1];
+    check(!E.act(game, other, 'ask', { target: a0 }, now += 10).ok, `${mode}: вне очереди спросить нельзя`);
+    for (const bad of [a0, '__proto__', 'nobody']) check(!E.act(game, a0, 'ask', { target: bad }, now += 10).ok, `${mode}: нельзя спросить «${bad}»`);
+    const v0 = E.view(game, a0);
+    check(v0.me.can.ask && v0.ask.askerId === a0 && v0.players.find((p) => p.id === a0).speaking, `${mode}: спрашивающий видит свой ход, у остальных он подсвечен`);
+    check(E.act(game, a0, 'ask', { target: other }, now += 10).ok && game.ask.stage === 'answer' && game.ask.targetId === other, `${mode}: вопрос задан, отвечает выбранный`);
+    check(E.view(game, other).me.can.answered && E.view(game, other).players.find((p) => p.id === other).speaking, `${mode}: у отвечающего кнопка «Ответ дан» и подсветка`);
+    check(game.clock.full === 30000 && (mode === 'host' ? game.clock.state === 'idle' : game.clock.state === 'run'), `${mode}: на ответ 30 секунд${mode === 'host' ? ', отсчёт запускает ведущий' : ''}`);
+    check(/задаёт вопрос игроку/.test(game.feed[game.feed.length - 1].text), `${mode}: в журнале видно, кто кого спросил`);
+    check(!E.act(game, turnQueue[2], 'answered', {}, now += 10).ok, `${mode}: за другого ответ не закончить`);
+    check(E.act(game, other, 'answered', {}, now += 10).ok && game.ask.askerId === other && game.ask.stage === 'pick', `${mode}: после ответа ход у следующего`);
+    check(E.act(game, other, 'ask', { pass: true }, now += 10).ok && game.ask.askerId === turnQueue[2] && /нет вопросов/.test(game.feed[game.feed.length - 1].text), `${mode}: «Нет вопросов» передаёт ход дальше`);
+    // Остальные отказываются; последний отказ
+    while (game.phase === PH.QUESTION && game.ask.stage === 'pick') E.act(game, game.ask.askerId, 'ask', { pass: true }, now += 10);
+    if (mode === 'host') {
+      check(game.phase === PH.QUESTION && game.ask.stage === 'done', 'ведущий: после круга допроса ждём, пока ведущий начнёт голосование');
+      E.tick(game, now += 120000);
+      check(game.phase === PH.QUESTION, 'ведущий: сам по таймеру голосование не начинается');
+      check(E.act(game, 'p0', 'host', { do: 'next' }, now += 10).ok && game.phase === PH.VOTE, 'ведущий: кнопка ведущего начинает голосование');
+    } else check(game.phase === PH.VOTE, 'таймеры: после круга допроса сразу голосование');
+  }
+  // Исключённые в очереди допроса пропускаются, спросить их нельзя
+  {
+    const players = Array.from({ length: 7 }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
+    const game = E.createGame({ caseData: Cases.CASES[0], players, seed: 12, now: 1000, settings: { mode: 'timers' } });
+    let now = 1000;
+    E.act(game, game.killerId, 'alibi', { loc: game.caseData.locations.find((l) => l !== game.scene) }, now);
+    for (let i = 0; i < 20 && game.phase !== PH.TALK; i++) E.skip(game, now += 1000);
+    const out = game.order.find((id) => id !== game.turn.queue[0]);
+    game.players[out].status = 'out';
+    E.skip(game, now += 1000);
+    check(!game.ask.queue.includes(out), 'исключённого нет в очереди допроса');
+    check(!E.act(game, game.ask.askerId, 'ask', { target: out }, now += 10).ok, 'исключённого спросить нельзя');
+    // Таймер выбора истёк: ход сгорает
+    const a = game.ask.askerId;
+    E.tick(game, now += 60000);
+    check(game.ask.askerId !== a && game.feed.some((f) => f.text === `${game.players[a].name} не задаёт вопрос.`), 'кто не выбрал вовремя, тот пропускает ход');
+  }
+}
+
 console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» и голоса без выбора в порядке');
 process.exit(fails ? 1 : 0);

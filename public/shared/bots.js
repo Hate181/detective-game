@@ -161,6 +161,22 @@
         if (elapsed > total * 0.4 && !p.ready && game.rng.chance(0.5)) return act(game, p.id, 'ready', {}, now).ok;
         return false;
       }
+      if (ph === PH.QUESTION) {
+        const a = game.ask;
+        if (!a) return false;
+        if (a.stage === 'pick' && a.askerId === p.id) {
+          // Отошедший игрок на автопилоте вопросов не задаёт, бот спрашивает того, кого больше подозревает.
+          const pool = game.order.filter((id) => id !== p.id && game.players[id].status === 'active');
+          const t = p.bot && game.rng.chance(0.85) ? pickVote(game, p, pool) : null;
+          return act(game, p.id, 'ask', t ? { target: t } : { pass: true }, now).ok;
+        }
+        if (a.stage === 'answer' && a.targetId === p.id) {
+          const key = `${game.round}:${a.idx}`;
+          if (p.bot && m.answer !== key) { m.answer = key; return true; }
+          return act(game, p.id, 'answered', {}, now).ok;
+        }
+        return false;
+      }
       if (ph === PH.VOTE || ph === PH.POLL || ph === PH.FINAL) {
         if (p.status !== 'active' || game.vote.votes[p.id]) return false;
         const t = pickVote(game, p, game.vote.candidates, ph === PH.FINAL ? game.vote.candidates : null);
@@ -191,7 +207,7 @@
         if (now < due) continue;
         const did = botAct(game, p, now);
         // В свой ход и в голосовании бот не тянет: важно, чтобы партия шла бодро.
-        const fast = game.phase === PH.TURNS || game.phase === PH.DEFENSE;
+        const fast = game.phase === PH.TURNS || game.phase === PH.DEFENSE || game.phase === PH.QUESTION;
         game.botDue[id] = now + (did ? (fast ? delay(game, 3, 8) : delay(game, 2, 7)) : delay(game, 0.8, 2.5));
         changed = changed || did;
         if (game.phase === PH.ENDED) break;

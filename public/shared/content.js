@@ -130,7 +130,7 @@
   };
 
   const DURATIONS = {
-    brief: 60, clue: 12, turn: 40, talk: 90, vote: 45, result: 14, advocate: 15, lottery: 10,
+    brief: 60, clue: 12, turn: 40, talk: 90, ask: 20, answer: 30, vote: 45, result: 14, advocate: 15, lottery: 10,
     poll: 40, defense: 40, final: 40, verdict: 9, accomplice: 30,
   };
 

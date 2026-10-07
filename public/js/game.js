@@ -19,7 +19,8 @@
     brief: ['Начать дело', 'Откроется первая улика'],
     clue: ['К рассказам', 'Каждый расскажет о себе по очереди'],
     turns: ['Передать слово дальше', 'Когда рассказ закончен'],
-    talk: ['К голосованию', 'Когда обсуждение выдохлось'],
+    talk: ['К допросу', 'Когда обсуждение выдохлось'],
+    question: ['Следующий вопрос', 'Когда ответ прозвучал'],
     vote: ['Подвести итог', 'Решает большинство'],
     result: ['Дальше', 'К следующему раунду'],
     poll: ['Подвести итог', 'Слово защиты получат самые подозреваемые'],
@@ -89,7 +90,7 @@
       const key = `${st.code}:${g.players.map((p) => p.id).join()}:${g.case.title}:${g.god ? g.god.seed : ''}`;
       if (key !== this.gameKey) { this.gameKey = key; this.seenClues = null; this.phaseKey = null; this.lastChat = 0; }
 
-      const pk = `${g.phase}:${g.round}:${g.turn ? g.turn.idx : ''}:${g.defense ? g.defense.idx : ''}:${g.vote ? (g.vote.runoff ? 'r' : '') + g.vote.kind : ''}`;
+      const pk = `${g.phase}:${g.round}:${g.turn ? g.turn.idx : ''}:${g.ask ? g.ask.idx + g.ask.stage : ''}:${g.defense ? g.defense.idx : ''}:${g.vote ? (g.vote.runoff ? 'r' : '') + g.vote.kind : ''}`;
       const phaseChanged = !!this.phaseKey && this.phaseKey !== pk;
       if (phaseChanged) this.onPhase(g);
       this.phaseKey = pk;
@@ -104,16 +105,18 @@
     onPhase(g) {
       if (g.phase === 'clue') toast(g.finale ? 'Последний раунд. Найдены все улики.' : `Раунд ${g.round}. Найдена новая улика.`);
       else if (g.phase === 'turns' && g.turn && g.turn.speakerId === this.me.id) toast('Ваше слово.');
+      else if (g.phase === 'question' && g.ask && g.ask.stage === 'pick' && g.ask.askerId === this.me.id) toast('Ваш вопрос.');
+      else if (g.phase === 'question' && g.ask && g.ask.stage === 'answer' && g.ask.targetId === this.me.id) toast('Вам задают вопрос.');
       else if (g.phase === 'vote') toast(g.vote && g.vote.runoff ? 'Ничья. Переголосование.' : 'Голосование.');
       else if (g.phase === 'defense' && g.defense && g.defense.speaker === this.me.id) toast('Ваше слово защиты.');
-      if (this.root.dataset.tab !== 'stage' && ['turns', 'vote', 'poll', 'final', 'clue', 'result', 'defense'].includes(g.phase)) { this.root.dataset.tab = 'stage'; }
+      if (this.root.dataset.tab !== 'stage' && ['turns', 'question', 'vote', 'poll', 'final', 'clue', 'result', 'defense'].includes(g.phase)) { this.root.dataset.tab = 'stage'; }
     },
 
     renderNav() {
       const g = this.g, me = this.me;
       const tab = this.root.dataset.tab;
       if (tab === 'journal') this.unread = false;
-      const needs = (me.can.reveal.length > 0) || (me.can.vote && !(g.vote && g.vote.my)) || (g.phase === 'turns' && g.turn && g.turn.speakerId === me.id);
+      const needs = (me.can.reveal.length > 0) || (me.can.vote && !(g.vote && g.vote.my)) || (g.phase === 'turns' && g.turn && g.turn.speakerId === me.id) || me.can.ask || (me.can.answered && g.ask.targetId === me.id);
       const dots = this.root.querySelectorAll('#gNav .dot');
       dots[0].hidden = !(needs && tab !== 'stage'); dots[1].hidden = !(this.unread && tab !== 'journal');
       this.root.querySelectorAll('#gNav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -126,10 +129,11 @@
       const crim = g.criminals ? ` · преступников на свободе: ${g.criminals.left} из ${g.criminals.total}` : '';
       const eyebrow0 = g.phase === 'brief' ? 'Вводная' : g.phase === 'verdict' || g.phase === 'accomplice' ? 'Дело закрывается'
         : g.phase === 'turns' && g.turn ? `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`} · рассказ ${g.turn.idx + 1} из ${g.turn.total}`
+        : g.phase === 'question' && g.ask && g.ask.stage !== 'done' ? `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`} · вопрос ${g.ask.idx + 1} из ${g.ask.total}`
           : `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`}`;
       const eyebrow = g.phase === 'brief' || g.phase === 'verdict' ? eyebrow0 : eyebrow0 + crim;
       const title = {
-        brief: esc(g.case.title), clue: g.finale ? 'Последние <em>улики</em>' : 'Новая <em>улика</em>', turns: 'Круг <em>рассказов</em>', talk: '<em>Обсуждение</em>',
+        brief: esc(g.case.title), clue: g.finale ? 'Последние <em>улики</em>' : 'Новая <em>улика</em>', turns: 'Круг <em>рассказов</em>', talk: '<em>Обсуждение</em>', question: '<em>Допрос</em>',
         vote: g.vote && g.vote.runoff ? '<em>Переголосование</em>' : '<em>Голосование</em>', result: 'Итог <em>раунда</em>', poll: 'Тайный <em>опрос</em>',
         defense: 'Слово <em>защиты</em>', final: 'Финальное <em>голосование</em>', verdict: '<em>Приговор</em>', accomplice: 'Последний <em>шанс</em>',
       }[g.phase] || '';
@@ -181,7 +185,10 @@
         const isMe = p.id === me.id, out = p.status === 'out';
         let st = '', cls = '';
         if (out) st = '<span class="st">вне игры</span>';
+        else if (g.phase === 'question' && g.ask && p.speaking) { st = `<span class="st go">${g.ask.stage === 'answer' ? 'отвечает' : 'спрашивает'}</span>`; cls = 'speaking'; }
         else if (p.speaking || (g.phase === 'defense' && g.defense && g.defense.speaker === p.id)) { st = '<span class="st go">говорит</span>'; cls = 'speaking'; }
+        else if (g.phase === 'question' && g.ask && g.ask.queue.indexOf(p.id) >= 0 && g.ask.queue.indexOf(p.id) < g.ask.idx) st = '<span class="st ok">✓</span>';
+        else if (g.phase === 'question' && g.ask && g.ask.queue.includes(p.id)) st = `<span class="st">${g.ask.queue.indexOf(p.id) + 1}-й</span>`;
         else if (g.phase === 'turns' && p.spoke) st = '<span class="st ok">✓</span>';
         else if (voting && p.voted) st = '<span class="st ok">✓</span>';
         else if ((g.phase === 'brief' || g.phase === 'talk') && p.ready) st = '<span class="st ok">✓ готово</span>';
@@ -257,6 +264,38 @@
             <div class="talk-hint">${icon('mic')}<span>Слушайте и запоминайте. Вопросы лучше держать до обсуждения.</span></div>`;
         }
         return `<div class="speaker">${avatar(sp.name, this.idx[sp.id], 'lg')}<div><p class="eyebrow">${mine ? 'Ваше слово' : 'Говорит'}</p><h3>${esc(sp.name)}</h3></div></div>${body}${outNote}`;
+      }
+
+      if (g.phase === 'question' && g.ask) {
+        const a = g.ask;
+        if (a.stage === 'done') {
+          return `<div class="s-head"><p class="eyebrow">Допрос окончен</p><h3>Все задали свои вопросы</h3><p>Ведущий начнёт голосование.</p></div>${wait('Ждём ведущего')}${outNote}`;
+        }
+        const asker = this.byId[a.askerId];
+        if (a.stage === 'pick') {
+          if (me.can.ask) {
+            // Список всех, кроме себя: кто вне игры, тот виден, но не нажимается
+            const list = g.players.filter((p) => p.id !== me.id).map((p) => {
+              const out = p.status !== 'active';
+              return `<button class="vote-btn ${out ? 'off' : ''}" data-a="ask" data-id="${esc(p.id)}" ${out ? 'disabled' : ''}>${avatar(p.name, this.idx[p.id])}<span><b>${esc(p.name)}</b>${out ? '<small>вне игры</small>' : ''}</span></button>`;
+            }).join('');
+            return `<div class="s-head"><p class="eyebrow">Ваш вопрос</p><h3>Кого спросить?</h3><p>Выберите игрока и задайте один вопрос вслух. На ответ 30 секунд.</p></div>
+              <div class="vote-grid">${list}</div>
+              <div class="act-row"><button class="btn" data-a="askpass">Нет вопросов</button><span class="muted">Ход перейдёт следующему.</span></div>`;
+          }
+          return `<div class="speaker">${avatar(asker.name, this.idx[asker.id], 'lg')}<div><p class="eyebrow">Спрашивает</p><h3>${esc(asker.name)}</h3></div></div>
+            ${wait(`${asker.name} выбирает, кого спросить`)}${outNote}`;
+        }
+        const tg = this.byId[a.targetId];
+        const mineT = tg.id === me.id, mineA = asker.id === me.id;
+        const hint = mineT ? 'Вам задали вопрос. Ответьте вслух, коротко и по делу: на это 30 секунд.'
+          : mineA ? 'Задайте вопрос вслух. Ответ должен уложиться в 30 секунд.'
+            : 'Слушайте ответ. Коротко и по делу, на это 30 секунд.';
+        return `<div class="ask-pair"><div class="speaker">${avatar(asker.name, this.idx[asker.id], 'lg')}<div><p class="eyebrow">Спрашивает</p><h3>${esc(asker.name)}${mineA ? ' (вы)' : ''}</h3></div></div>
+            <span class="ask-arrow" aria-hidden="true">→</span>
+            <div class="speaker">${avatar(tg.name, this.idx[tg.id], 'lg')}<div><p class="eyebrow">Отвечает</p><h3>${esc(tg.name)}${mineT ? ' (вы)' : ''}</h3></div></div></div>
+          <div class="talk-hint">${icon('mic')}<span>${esc(hint)}</span></div>
+          ${mineT ? '<div class="act-row"><button class="btn btn-primary" data-a="answered">Ответ дан</button><span class="muted">Ход перейдёт следующему.</span></div>' : ''}${outNote}`;
       }
 
       if (g.phase === 'talk') {
@@ -393,7 +432,7 @@
     /* Часы ведущего: старт или пауза, заново, +30 секунд. */
     clockButtons(g) {
       const c = g.clock;
-      if (!c || g.overlay || g.phase === 'verdict') return '';
+      if (!c || g.overlay || g.phase === 'verdict' || (g.phase === 'question' && g.ask && g.ask.stage === 'done')) return '';
       const run = c.state === 'run';
       return `<span class="clock-ctl" role="group" aria-label="Таймер">
         <button class="btn btn-sm ${run ? '' : 'btn-amber'}" data-a="hclock" data-v="${run ? 'pause' : 'start'}" title="${run ? 'Поставить таймер на паузу' : 'Запустить отсчёт'}" aria-label="${run ? 'Пауза' : 'Старт'}">${icon(run ? 'pause' : 'play')}<span>${run ? 'Пауза' : c.state === 'pause' ? 'Дальше' : 'Старт'}</span></button>
@@ -412,10 +451,12 @@
       else if (g.phase === 'talk') status = `Готовы к голосованию: ${g.players.filter((p) => p.status === 'active' && p.ready).length} из ${nAct}`;
       else if (g.vote && ['vote', 'poll', 'final'].includes(g.phase)) status = `Проголосовали: ${g.vote.voted.length} из ${nAct}`;
       else if (g.phase === 'turns' && g.turn) status = `Слово: ${this.byId[g.turn.speakerId].name}`;
+      else if (g.phase === 'question' && g.ask) status = g.ask.stage === 'done' ? 'Допрос окончен' : g.ask.stage === 'answer' ? `Отвечает: ${this.byId[g.ask.targetId].name}` : `Спрашивает: ${this.byId[g.ask.askerId].name}`;
       if (me.isHost) {
         const [label, sub] = HOST_BTN[g.phase] || ['Дальше', ''];
         let next = label;
         if (g.phase === 'turns' && g.turn && g.turn.idx + 1 >= g.turn.total) next = 'К обсуждению';
+        if (g.phase === 'question' && g.ask) next = g.ask.stage === 'done' ? 'К голосованию' : g.ask.stage === 'pick' ? 'Пропустить ход' : 'Следующий вопрос';
         const modeLbl = g.manual ? 'Перейти на таймеры' : 'Вернуть ручное ведение';
         setHtml(host, `<div><div class="who"><b>Вы ведёте партию</b><span>${esc(status || sub)}${g.manual ? '' : ' · сейчас идёт по таймерам'}</span></div>
           <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button>${this.clockButtons(g)}<button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
@@ -526,6 +567,9 @@
       if (a === 'alibi') return this.act('alibi', { loc: b.dataset.loc });
       if (a === 'ready') return this.act('ready');
       if (a === 'endturn') return this.act('endturn');
+      if (a === 'ask') return this.act('ask', { target: b.dataset.id });
+      if (a === 'askpass') return this.act('ask', { pass: true });
+      if (a === 'answered') return this.act('answered');
       if (a === 'vote') return this.act('vote', { target: b.dataset.id });
       if (a === 'advocate') return this.act('advocate', { play: b.dataset.play === '1' });
       if (a === 'endspeech') return this.act('endspeech');
