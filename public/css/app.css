@@ -820,6 +820,8 @@ body:not([data-screen="home"]):not([data-screen="page"]) .cookiebar { display: n
 .clock-ctl { display: inline-flex; gap: 6px; align-items: center; }
 .clock-ctl .btn { display: inline-flex; align-items: center; gap: 6px; }
 .clock-ctl .btn svg { width: 14px; height: 14px; flex: none; }
+.host-back { display: inline-flex; align-items: center; gap: 6px; }
+.host-back svg { width: 14px; height: 14px; flex: none; }
 .btn-amber { border-color: var(--amber); color: var(--amber); }
 .timer.stopped b { color: var(--muted); }
 .timer.stopped .fg { stroke: var(--muted); }

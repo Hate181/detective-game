@@ -220,5 +220,48 @@ function start(rules) {
   }
 }
 
+{
+  // Ведущий и говорящий нажали «дальше» одновременно: второе нажатие опоздало. «Назад» возвращает пропущенного.
+  const players = Array.from({ length: 6 }, (_, i) => ({ id: 'p' + i, name: 'И' + i, bot: false }));
+  const game = E.createGame({ caseData: Cases.CASES[0], players, seed: 11, now: 1000, hostId: 'p0', settings: { mode: 'host' } });
+  let now = 1000;
+  const next = (step) => E.act(game, 'p0', 'host', { do: 'next', step }, now += 100);
+  const back = () => E.act(game, 'p0', 'host', { do: 'back' }, now += 100);
+  for (let i = 0; i < 10 && game.phase !== PH.TURNS; i++) next(game.step);
+  const t = game.turn;
+  const a = t.speakerId, b = t.queue[t.idx + 1], c = t.queue[t.idx + 2];
+  const seen = game.step;
+  check(E.act(game, a, 'endturn', { step: seen }, now += 10).ok && game.turn.speakerId === b, 'говорящий передал слово');
+  check(!next(seen).ok && game.turn.speakerId === b, 'опоздавшее нажатие ведущего никого не пропускает');
+  check(!E.view(game, 'p1').me.can.back, 'кнопка «Назад» есть только у ведущего');
+  const bRev = Object.keys(game.players[b].revealed).sort().join();
+  check(next(game.step).ok && game.turn.speakerId === c, 'ведущий пропустил игрока');
+  check(Object.keys(game.players[b].revealed).length > bRev.split(',').filter(Boolean).length, 'за пропущенного карточка открылась сама');
+  check(E.view(game, 'p0').me.can.back && back().ok && game.turn.speakerId === b, '«Назад» вернул слово пропущенному');
+  check(Object.keys(game.players[b].revealed).sort().join() === bRev && !game.turn.revealed, 'случайно открытое у пропущенного снова закрыто, он выбирает сам');
+  check(!game.feed.some((f) => f.who === c && f.kind === 'turn' && f.text.startsWith('Слово')) || game.feed.filter((f) => f.who === c && f.kind === 'turn').length === 0, 'лишние строки в журнале убраны');
+  check(back().ok && game.turn.speakerId === a, 'можно вернуться ещё на шаг');
+  E.act(game, a, 'reveal', { trait: E.view(game, a).me.can.reveal[0] }, now += 10);
+  check(next(game.step).ok && game.turn.speakerId === b, 'дальше снова по порядку');
+  check(back().ok && game.turn.speakerId === a && game.turn.revealed, '«Назад» после раскрытия по выбору вернул слово, раскрытие сохранено');
+  // Обсуждение: после сыгранной карты вернуться нельзя.
+  for (let i = 0; i < 10 && game.phase === PH.TURNS; i++) next(game.step);
+  check(game.phase === PH.TALK && back().ok && game.phase === PH.TURNS, 'из обсуждения можно вернуться к последнему рассказу');
+  next(game.step);
+  const p = game.order.find((id) => id !== 'p0');
+  game.players[p].cards.push({ type: 'warrant', used: false });
+  const tgt = game.order.find((id) => id !== p);
+  check(E.act(game, p, 'card', { type: 'warrant', target: tgt, trait: 'alibi' }, now += 10).ok, 'в обсуждении сыграли «Обыск»');
+  check(!E.view(game, 'p0').me.can.back && !back().ok && game.phase === PH.TALK, 'после сыгранной карты шаг не вернуть');
+  // Обвинительная минута.
+  next(game.step);
+  const first = game.accuse.speakerId;
+  next(game.step);
+  check(game.accuse.speakerId !== first && back().ok && game.accuse.speakerId === first, '«Назад» в обвинительной минуте возвращает предыдущего');
+  check(back().ok && game.phase === PH.TALK, 'из первой минуты можно вернуться в обсуждение');
+  for (let i = 0; i < 20 && game.phase !== PH.VOTE; i++) next(game.step);
+  check(game.phase === PH.VOTE && !back().ok, 'начатое голосование назад не отматывается');
+}
+
 console.log(fails ? `провалов: ${fails}` : 'правило «одна из двух» и голоса без выбора в порядке');
 process.exit(fails ? 1 : 0);

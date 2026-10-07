@@ -439,7 +439,7 @@
         if (g.phase === 'accuse' && g.accuse) next = g.accuse.done || g.accuse.idx + 1 >= g.accuse.total ? (g.accuse.done ? 'К голосованию' : 'Завершить обвинения') : 'Следующий';
         const modeLbl = g.manual ? 'Перейти на таймеры' : 'Вернуть ручное ведение';
         setHtml(host, `<div><div class="who"><b>Вы ведёте партию</b><span>${esc(status || sub)}${g.manual ? '' : ' · сейчас идёт по таймерам'}</span></div>
-          <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button>${this.clockButtons(g)}<button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
+          <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button>${this.clockButtons(g)}${['turns', 'talk', 'accuse'].includes(g.phase) ? `<button class="btn btn-sm host-back" data-a="hback" ${me.can && me.can.back ? '' : 'disabled'} title="Вернуть предыдущий шаг: слово получит тот, кого пропустили" aria-label="Назад">${icon('undo')}<span>Назад</span></button>` : ''}<button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
         host.className = 'host-bar';
       } else {
         const txt = g.manual ? `Ведущий ${hostP ? hostP.name : ''} листает раунды` : 'Партия идёт по таймерам';
@@ -546,14 +546,15 @@
       if (a === 'reveal') return this.act('reveal', { trait: b.dataset.trait });
       if (a === 'alibi') return this.act('alibi', { loc: b.dataset.loc });
       if (a === 'ready') return this.act('ready');
-      if (a === 'endturn') return this.act('endturn');
-      if (a === 'endaccuse') return this.act('endaccuse');
+      if (a === 'endturn') return this.act('endturn', { step: g.step });
+      if (a === 'endaccuse') return this.act('endaccuse', { step: g.step });
       if (a === 'vote') return this.act('vote', { target: b.dataset.id });
       if (a === 'advocate') return this.act('advocate', { play: b.dataset.play === '1' });
       if (a === 'endspeech') return this.act('endspeech');
       if (a === 'accomplice') return this.act('accomplice', { mode: b.dataset.mode, target: b.dataset.id });
       if (a === 'card') return this.playCard(b.dataset.type);
-      if (a === 'hnext') return this.act('host', { do: 'next' });
+      if (a === 'hnext') return this.act('host', { do: 'next', step: g.step });
+      if (a === 'hback') return this.act('host', { do: 'back' });
       if (a === 'hext') return this.act('host', { do: 'extend' });
       if (a === 'hclock') return this.act('host', { do: 'clock', op: b.dataset.v });
       if (a === 'hmode') { const r = await Net.call('room:setting', { key: 'mode', value: g.manual ? 'timers' : 'host' }); if (!r.ok) fail(r); return; }

@@ -58,7 +58,7 @@
       phase: PH.BRIEF, phaseStartedAt: now, phaseEndsAt: 0, autoAt: null, paused: false, pausedAt: 0, wasManual: null,
       round: 0, order: ids.slice(), players: {},
       clues: gen.clues.map((c) => Object.assign({ revealedRound: null }, c)),
-      overlay: null, feed: [], feedSeq: 0, kicks: [], suspicions: [], plants: [], votesLog: [],
+      overlay: null, feed: [], feedSeq: 0, step: 0, undo: [], kicks: [], suspicions: [], plants: [], votesLog: [],
       turn: null, vote: null, poll: null, defense: null, verdict: null, results: null, decisive: null,
       botDue: {}, botMem: {},
     };
@@ -282,7 +282,47 @@
 
   const toVote = (game, now) => startVote(game, now, isFinale(game) ? 'poll' : 'kick');
 
-  function endPhase(game, now) {
+  /* «Назад» у ведущего. Рассказы, обсуждение и обвинительные минуты листаются шагами, и каждый шаг можно вернуть,
+     пока после него никто не сыграл карту и не случилось ничего, кроме раскрытия по своему выбору.
+     Случайно пропущенный игрок получает слово обратно, а то, что за него открылось само, снова закрывается. */
+  const UNDO_PHASES = [PH.TURNS, PH.TALK, PH.ACCUSE];
+  const lastFeedId = (game) => (game.feed.length ? game.feed[game.feed.length - 1].id : 0);
+  const copy = (o) => (o ? JSON.parse(JSON.stringify(o)) : o);
+  function stepped(game, now, fn) {
+    const snap = UNDO_PHASES.includes(game.phase) && !game.overlay ? {
+      phase: game.phase, turn: copy(game.turn), accuse: copy(game.accuse), seqBefore: lastFeedId(game),
+      rev: game.order.map((id) => [id, Object.assign({}, game.players[id].revealed), !!game.players[id].secretRevealed]),
+    } : null;
+    fn();
+    game.step = (game.step || 0) + 1;
+    if (!snap || !UNDO_PHASES.includes(game.phase)) { game.undo = []; return; }
+    snap.seqAfter = lastFeedId(game);
+    game.undo = (game.undo || []).concat([snap]).slice(-20);
+  }
+  function canUndo(game) {
+    const u = game.undo;
+    if (!u || !u.length || game.overlay || !UNDO_PHASES.includes(game.phase)) return false;
+    const top = u[u.length - 1];
+    return game.feed.every((f) => f.id <= top.seqAfter || (f.kind === 'reveal' && f.how === 'choice'));
+  }
+  function undoStep(game, now) {
+    const s = game.undo.pop();
+    game.feed = game.feed.filter((f) => f.id <= s.seqBefore);
+    s.rev.forEach(([id, rev, sec]) => { const p = game.players[id]; p.revealed = rev; p.secretRevealed = sec; });
+    game.turn = s.turn;
+    game.accuse = s.accuse;
+    game.phase = s.phase;
+    game.phaseStartedAt = now;
+    game.autoAt = null;
+    game.overlay = null;
+    game.order.forEach((id) => { game.players[id].ready = false; });
+    startClock(game, now, dur(game, s.phase === PH.TURNS ? 'turn' : s.phase === PH.TALK ? 'talk' : 'accuse'));
+    game.step += 1;
+  }
+
+  const endPhase = (game, now) => stepped(game, now, () => endPhaseRaw(game, now));
+
+  function endPhaseRaw(game, now) {
     switch (game.phase) {
       case PH.BRIEF:
         game.order.forEach((id) => {
@@ -675,10 +715,16 @@
       }
       bad('Неизвестная кнопка.');
     }
+    if (pl.do === 'back') {
+      if (!canUndo(game)) bad('Этот шаг уже не вернуть: после него сыграли карту или сменилась фаза.');
+      return undoStep(game, now);
+    }
     if (pl.do !== 'next') bad('Неизвестная кнопка.');
+    // Ведущий и говорящий нажали почти одновременно: второе нажатие опоздало и никого не пропускает.
+    if (pl.step != null && pl.step !== game.step) bad('Слово уже передали. Если кого-то пропустили, нажмите «Назад».');
     // Рулетку полиции не пропускает никто, ведущий тоже: все досматривают её до конца.
     if (game.overlay && game.overlay.type === 'lottery') bad('Полиция ещё решает, кого задержать.');
-    if (game.overlay) { resolveOverlayTimeout(game, now); return; }
+    if (game.overlay) { resolveOverlayTimeout(game, now); game.step += 1; return; }
     endPhase(game, now);
   };
 
@@ -696,7 +742,8 @@
   HANDLERS.endturn = (game, p, pl, now) => {
     needPhase(game, PH.TURNS);
     if (game.turn.speakerId !== p.id) bad('Сейчас говорит другой игрок.');
-    endTurn(game, now);
+    if (pl.step != null && pl.step !== game.step) bad('Слово уже передали.');
+    stepped(game, now, () => endTurn(game, now));
   };
 
   HANDLERS.vote = (game, p, pl) => {
@@ -838,7 +885,8 @@
     if (game.accuse.speakerId !== p.id) bad('Сейчас говорит другой игрок.');
     // С живым ведущим дальше листает только он.
     if (isManual(game)) bad('Следующего включает ведущий.');
-    nextAccuser(game, now);
+    if (pl.step != null && pl.step !== game.step) bad('Слово уже передали.');
+    stepped(game, now, () => nextAccuser(game, now));
   };
 
   HANDLERS.accomplice = (game, p, pl, now) => {
@@ -859,6 +907,8 @@
     if (game.phase === PH.ENDED) return { ok: false, error: 'Дело уже закрыто.' };
     try {
       h(game, p, payload || {}, now);
+      // Карты и прочие действия тихо меняют партию, поэтому после них «Назад» у ведущего больше не работает.
+      if (!['host', 'endturn', 'endaccuse', 'reveal', 'ready'].includes(action)) game.undo = [];
       advance(game, now);
       return { ok: true };
     } catch (e) {
@@ -1000,7 +1050,7 @@
     });
     const ov = game.overlay;
     const v = {
-      now: Date.now(), phase: game.phase, phaseStartedAt: game.phaseStartedAt, phaseEndsAt: game.phaseEndsAt, paused: game.paused,
+      now: Date.now(), step: game.step || 0, phase: game.phase, phaseStartedAt: game.phaseStartedAt, phaseEndsAt: game.phaseEndsAt, paused: game.paused,
       clock: game.clock && game.phase !== PH.ENDED ? { state: game.clock.state, full: game.clock.full, left: Math.round(clockLeft(game, Date.now())) } : null,
       manual: isManual(game), mode: game.settings.mode, hints: game.settings.hints === 'light' ? 'light' : 'normal', hostId: game.hostId,
       round: game.round, rounds: ROUNDS, finale: isFinale(game), speed: game.settings.speed,
@@ -1033,6 +1083,7 @@
         can: {
           reveal: mySpeak && !game.turn.revealed ? volunteerable(game, me) : [],
           locked: mySpeak && !game.turn.revealed ? [...SAFE_TRAITS].filter((t) => !me.revealed[t] && lockedTrait(game, me, t)) : [],
+          back: me.id === game.hostId && canUndo(game),
           endturn: mySpeak || (game.phase === PH.DEFENSE && game.defense.order[game.defense.idx] === me.id),
           endaccuse: !!acc && acc.speakerId === me.id && !isManual(game),
           card: game.phase === PH.TALK && !game.overlay && canAct,
