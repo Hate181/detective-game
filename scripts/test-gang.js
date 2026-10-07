@@ -48,6 +48,7 @@ for (const n of [6, 7, 8, 10]) {
   check(game.clues.every((c) => c.fits.length >= 2 && c.fits.length <= cap && c.fits.some((id) => !crim.includes(id))), `${n} игроков: каждой улике подходят от 2 до ${cap} игроков, среди них есть невиновный`);
   const habs = game.order.map((id) => game.players[id].card.habitTags.length);
   check(habs.every((h) => h === 2), `${n} игроков: у всех ровно две особенности: ${habs.join(',')}`);
+  check(game.order.every((id) => game.players[id].card.proTags.length > 0), `${n} игроков: у каждой профессии есть навык, по профессии невиновность не доказать`);
   check(game.order.every((id) => game.players[id].card.habitTags.every((t) => t.startsWith(game.caseData.id + '.'))), `${n} игроков: приметы взяты из набора этого дела`);
 }
 

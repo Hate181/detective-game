@@ -232,7 +232,8 @@
   function generate({ caseData, ids, killerId, accompliceId = null, gang = false, rng }) {
     const crimId = gang && accompliceId ? accompliceId : null; // сообщник получает те же улики, только если победа требует исключить обоих
     const n = ids.length;
-    const pool = professionPool(caseData);
+    // Профессия без навыка, подходящего под улики, никогда не досталась бы преступнику и сразу оправдывала бы владельца.
+    const pool = professionPool(caseData).filter((p) => p.tags.some((t) => Content.clueTexts(caseData, t).length));
     const locs = caseData.locations;
     const scene = caseData.scene && locs.includes(caseData.scene) ? caseData.scene : locs[0];
     const nonScene = locs.filter((l) => l !== scene);

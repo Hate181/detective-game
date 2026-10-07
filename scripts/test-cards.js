@@ -28,10 +28,11 @@ function toPhase(st, phases) {
   return false;
 }
 /** Все голосуют за target; подсчёт; карту защиты не трогаем. */
-function voteFor(st, target) {
+function voteFor(st, target, keepSave) {
   const { game } = st;
   act(game).forEach((id) => { const t = id === target ? game.vote.candidates.find((c) => c !== id) : target; E.act(game, id, 'vote', { target: t }, st.now += 10); });
   E.skip(game, st.now += 100);
+  while (!keepSave && game.overlay && game.overlay.type === 'save') E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, st.now += 10);
 }
 
 // Колода: обе «Подмены» в игре, старой карты убийцы нет
@@ -197,7 +198,7 @@ for (const n of [6, 7, 8, 9, 10]) {
     const crim = game.accompliceId;
     const cop = act(game).find((id) => game.players[id].role === 'innocent');
     const pc = game.players[crim].card;
-    if (pc.alibi.claim && pc.alibi.claim.loc !== pc.alibi.real.loc) {
+    if (pc.alibi.claim && pc.alibi.claim.loc !== pc.alibi.real.loc && !game.players[crim].revealed.alibi && game.players[crim].status === 'active') {
       game.players[crim].cards.push({ type: 'trail', used: false });
       game.players[cop].cards.push({ type: 'warrant', used: false });
       E.act(game, cop, 'card', { type: 'warrant', target: crim, trait: 'alibi' }, st.now += 10);
@@ -293,7 +294,7 @@ for (const n of [6, 7, 8, 9, 10]) {
     const adv = game.order.find((id) => has(game, id, 'advocate'));
     if (!adv) continue;
     toPhase(st, [PH.VOTE]);
-    voteFor(st, adv);
+    voteFor(st, adv, true);
     if (!game.overlay) continue;
     tried = true;
     const r = E.act(game, adv, 'advocate', { play: true }, st.now += 10);

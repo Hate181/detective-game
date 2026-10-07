@@ -80,6 +80,7 @@ function start(rules) {
   E.skip(game, now += 1000);
   const log = game.votesLog[game.votesLog.length - 1];
   check(log.count[target] === 3 && ids.slice(3).every((id) => log.count[id] === 1), 'молчащие получили по голосу против себя: ' + JSON.stringify(log.count));
+  while (game.overlay && game.overlay.type === 'save') E.act(game, game.overlay.nomineeId, 'save', { card: 'none' }, now += 10);
   check(game.kicks.length === 1 && game.kicks[0].id === target, 'исключён лидер голосования');
   check(!game.suspicions.some((x) => x.by === x.target), 'голос «без выбора» не считается подозрением');
 }
