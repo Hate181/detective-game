@@ -188,11 +188,11 @@
         if (out) st = '<span class="st">вне игры</span>';
         else if (p.speaking || (g.phase === 'defense' && g.defense && g.defense.speaker === p.id)) { st = '<span class="st go">говорит</span>'; cls = 'speaking'; }
         else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.indexOf(p.id) >= 0 && (g.accuse.done || g.accuse.queue.indexOf(p.id) < g.accuse.idx)) st = '<span class="st ok">✓</span>';
-        else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.includes(p.id)) st = `<span class="st">очередь ${g.accuse.queue.indexOf(p.id) + 1}</span>`;
+        else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.includes(p.id)) st = `<span class="st">${g.accuse.queue.indexOf(p.id) + 1}</span>`;
         else if (g.phase === 'turns' && p.spoke) st = '<span class="st ok">✓</span>';
         else if (voting && p.voted) st = '<span class="st ok">✓</span>';
         else if ((g.phase === 'brief' || (g.phase === 'talk' && !g.manual)) && p.ready) st = '<span class="st ok">✓ готово</span>';
-        else if (g.phase === 'turns' && g.turn && g.turn.queue.includes(p.id)) st = `<span class="st">очередь ${g.turn.queue.indexOf(p.id) + 1}</span>`;
+        else if (g.phase === 'turns' && g.turn && g.turn.queue.includes(p.id)) st = `<span class="st">${g.turn.queue.indexOf(p.id) + 1}</span>`;
         const c = this.conn[p.id]; const off = c && !c.connected && !c.isBot;
         const role = out && p.role === 'killer' ? '<span class="role">убийца</span>' : out && p.role === 'accomplice' ? '<span class="role" style="color:var(--amber)">сообщник</span>' : '';
         return `<button class="q-chip ${cls} ${isMe ? 'me' : ''} ${out ? 'out' : ''}" data-a="person" data-id="${esc(p.id)}" title="№${i + 1} ${esc(p.name)}: показать досье" data-pid="${esc(p.id)}">
