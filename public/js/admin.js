@@ -4,7 +4,7 @@
   const Content = UI.Content, Cases = window.DetectiveCases, Gen = window.DetectiveGenerator;
   const Screens = (window.Screens = window.Screens || {});
   const TABS = [['test', 'Тестовая комната'], ['rooms', 'Комнаты'], ['cases', 'Дела'], ['sim', 'Симуляция'], ['players', 'Игроки']];
-  const ICON_NAMES = { mansion: 'Особняк', train: 'Поезд', corporate: 'Бокал', yacht: 'Якорь', theatre: 'Театр', hotel: 'Отель', generic: 'Лупа', museum: 'Музей', lighthouse: 'Маяк', mountain: 'Горы', casino: 'Казино', film: 'Кино', clinic: 'Клиника', book: 'Книга', circus: 'Цирк', airship: 'Дирижабль', pyramid: 'Пирамида', radio: 'Радио', wine: 'Вино', bank: 'Банк', spa: 'Санаторий', steamboat: 'Пароход', chess: 'Шахматы' };
+  const ICON_NAMES = { mansion: 'Особняк', train: 'Поезд', corporate: 'Бокал', yacht: 'Якорь', theatre: 'Театр', hotel: 'Отель', generic: 'Лупа', museum: 'Музей', lighthouse: 'Маяк', mountain: 'Горы', casino: 'Казино', film: 'Кино', clinic: 'Клиника', book: 'Книга', circus: 'Цирк', airship: 'Дирижабль', pyramid: 'Пирамида', radio: 'Радио', wine: 'Вино', bank: 'Банк', spa: 'Санаторий', steamboat: 'Пароход', chess: 'Шахматы', pumpkin: 'Тыква', mask: 'Маска', candle: 'Свеча', bat: 'Летучая мышь', grave: 'Надгробие', campfire: 'Костёр', ghost: 'Призрак', raven: 'Ворон' };
   const SPEEDS = [[1, 'Обычная'], [0.5, '×2'], [0.25, '×4'], [0.1, '×10'], [0.05, '×20']];
   const ROLES = [['random', 'Случайная'], ['killer', 'Убийца'], ['innocent', 'Невиновный'], ['accomplice', 'Сообщник']];
   const PHASES = { brief: 'вводная', reveal: 'улика', discuss: 'обсуждение', poll: 'голосование', defense: 'очная ставка', final: 'финал', verdict: 'приговор', accomplice: 'сообщник', ended: 'закончена' };
@@ -160,7 +160,7 @@
     },
 
     /* ---------- Дела ---------- */
-    blankCase() { return { id: '', title: '', short: '', icon: 'generic', year: '', difficulty: 2, victim: '', time: '23:00', teaser: '', locations: [], scene: '', professions: [], enabled: true }; },
+    blankCase() { return { id: '', title: '', short: '', icon: 'generic', pack: 'main', year: '', difficulty: 2, victim: '', time: '23:00', teaser: '', locations: [], scene: '', professions: [], enabled: true }; },
     casesHtml() {
       const list = this.cases.map((c) => `<button class="case-li ${this.edit === c.id ? 'sel' : ''} ${c.enabled === false ? 'off' : ''}" data-a="edit" data-id="${esc(c.id)}">${icon(c.icon)}<span><h3>${esc(c.title)}</h3><small>${esc(c.victim)} · ${c.enabled === false ? 'выключено' : 'в архиве'}</small></span></button>`).join('');
       const c = this.edit === '__new' ? this.blankCase() : this.cases.find((x) => x.id === this.edit);
@@ -178,6 +178,7 @@
           <div class="row3"><div class="field"><label for="cYear">Год</label><input class="input" id="cYear" value="${esc(c.year)}" maxlength="12"></div>
             <div class="field"><label for="cTime">Время смерти</label><input class="input" id="cTime" value="${esc(c.time)}" maxlength="5" placeholder="23:40"></div>
             <div class="field"><label for="cDiff">Сложность</label><select class="input" id="cDiff">${[1, 2, 3].map((d) => `<option value="${d}" ${Number(c.difficulty) === d ? 'selected' : ''}>${['Лёгкая', 'Средняя', 'Сложная'][d - 1]}</option>`).join('')}</select></div></div>
+          <div class="field"><label for="cPack">Пак</label><select class="input" id="cPack">${Cases.PACKS.map((p) => `<option value="${esc(p.id)}" ${(c.pack || 'main') === p.id ? 'selected' : ''}>${esc(p.title)}</option>`).join('')}</select></div>
           <div class="field"><label for="cVictim">Жертва</label><input class="input" id="cVictim" value="${esc(c.victim)}" maxlength="120" placeholder="Лорд Эдмунд Грейвз, хозяин дома"></div>
           <div class="field"><label for="cTeaser">Вводная</label><textarea class="input" id="cTeaser" rows="3" maxlength="400">${esc(c.teaser)}</textarea></div>
           <div class="row2"><div class="field"><label for="cLocs">Места, по одному в строке</label><textarea class="input" id="cLocs" rows="7">${esc((c.locations || []).join('\n'))}</textarea></div>
@@ -193,7 +194,7 @@
       const orig = this.edit === '__new' ? {} : (this.cases.find((x) => x.id === this.edit) || {});
       return {
         id: orig.id || '', title: v('#cTitle'), short: v('#cShort'), icon: (this.root.querySelector('#cIcon .on') || {}).dataset?.v || 'generic', year: v('#cYear'), difficulty: Number(v('#cDiff')),
-        victim: v('#cVictim'), time: v('#cTime'), teaser: v('#cTeaser'), locations: v('#cLocs'), scene: v('#cScene'), professions: v('#cProf'), enabled: this.root.querySelector('#cEnabled').checked,
+        victim: v('#cVictim'), time: v('#cTime'), teaser: v('#cTeaser'), pack: v('#cPack'), locations: v('#cLocs'), scene: v('#cScene'), professions: v('#cProf'), enabled: this.root.querySelector('#cEnabled').checked,
       };
     },
     async saveCase() {

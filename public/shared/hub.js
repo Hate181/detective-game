@@ -542,7 +542,7 @@
         players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
         rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
-        packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, count: this._packCases(p.id).length })),
+        packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
         cases: this.enabledCases().map(({ id, title, icon, victim, difficulty, teaser }) => ({ id, title, icon, victim, difficulty, teaser })),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,
@@ -561,6 +561,8 @@
       if (i < 0 && list.length >= 300) fail('bad_case', 'В архиве уже 300 дел. Удалите лишние.');
       // Приметы, связи, мотивы и тайны в админке не редактируются: при правке дела они сохраняются как были.
       if (i >= 0) ['habits', 'proClues', 'relations', 'motives', 'secrets'].forEach((k) => { if (c[k] === undefined && list[i][k] !== undefined) c[k] = list[i][k]; });
+      // Пак не теряется, если форма его не прислала.
+      if (i >= 0 && !(data && data.pack) && list[i].pack) c.pack = list[i].pack;
       if (i >= 0) list[i] = c; else list.push(c);
       this.store.saveCases();
       this._sanitizeChoices();

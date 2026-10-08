@@ -70,7 +70,7 @@ check(new Set(seen).size >= 13, `за 45 запусков выпало ${new Set
   const old = Cases.RETIRED_IDS.map((id) => ({ id, title: 'Старое ' + id, pack: undefined, professions: [], enabled: true }));
   old.push({ id: 'custom-1', title: 'Дело админа', professions: [], enabled: true });
   const m = Cases.mergeBuiltins(old, Cases.RETIRED_IDS, 2, 0);
-  check(m.retired === 20 && m.added === 15, `миграция: убрано ${m.retired} старых, добавлено ${m.added} новых`);
+  check(m.retired === 20 && m.added === Cases.CASES.length, `миграция: убрано ${m.retired} старых, добавлено ${m.added} новых`);
   check(old.some((c) => c.id === 'custom-1' && c.pack === 'main'), 'дело админа осталось и попало в основной пак');
   const again = Cases.mergeBuiltins(old, m.seen, m.textRev, m.packRev);
   check(!again.added && !again.retired, 'повторный запуск ничего не меняет');
@@ -113,6 +113,59 @@ check(sameKiller / cmpKillers < 0.12, `профессия убийцы совп�
     if (new Set(rel).size < 10 || new Set(mot).size < 10 || new Set(pro).size < 10) dup++;
   }
   check(dup === 0, `в одной партии на десятерых связи, мотивы и профессии не повторяются (${games} партий)`);
+}
+
+// 5. Пак «Хеллоуин»
+{
+  const hw = Cases.CASES.filter((c) => c.pack === 'halloween');
+  check(hw.length === 10 && new Set(hw.map((c) => c.title)).size === 10, `в паке «Хеллоуин» 10 дел (сейчас ${hw.length})`);
+  check(hw.every((c) => c.locations.length === 7 && c.locations.includes(c.scene) && c.professions.length === 18), 'в каждом хеллоуинском деле 7 мест и 18 профессий');
+  check(hw.every((c) => c.habits.length === 16 && c.relations.length === 12 && c.motives.length === 12 && c.secrets.length === 8), 'у каждого дела 16 примет, 12 связей, 12 мотивов, 8 секретов');
+  check(hw.every((c) => c.professions.every((p) => p.tags.length && p.tags.every((t) => Content.clueTexts(c, t) === c.proClues[t]))), 'у каждой профессии есть умение, и у каждого умения свои улики дела');
+  check(hw.every((c) => Cases.ICONS.includes(c.icon) && c.teaser.length <= 400), 'значки из набора, вводные не длиннее 400 знаков');
+  const txt = JSON.stringify(hw);
+  check(!/[—–]/.test(txt), 'в хеллоуинских делах нет тире');
+  const all = hw.flatMap((c) => c.habits.flatMap((h) => h.clues).concat(Object.values(c.proClues).flat()));
+  check(new Set(all).size === all.length, `улики не повторяются (${all.length})`);
+  // Партии собираются при любом составе
+  let broken = 0, runs = 0;
+  for (const c of hw) for (let n = 6; n <= 10; n++) for (let g = 0; g < 30; g++) {
+    runs++;
+    const rng = new Rng(77 + g * 13 + n);
+    const ids = Array.from({ length: n }, (_, i) => 'p' + i);
+    try {
+      const gen = Gen.generate({ caseData: c, ids, killerId: 'p1', accompliceId: 'p4', gang: true, rng });
+      if (Gen.verify(gen, ids, 'p1', 'p4').length) broken++;
+    } catch (e) { broken++; }
+  }
+  check(broken === 0, `хеллоуинские партии собираются и проходят проверку (${runs} партий, сломано ${broken})`);
+  // Комната с паком «Хеллоуин» берёт дела только из него
+  const toks = Array.from({ length: 7 }, (_, i) => 'hw' + i);
+  const { code } = hub.handle(toks[0], 'room:create', { name: 'Ведущий' });
+  check(hub.handle(toks[0], 'room:pack', { packId: 'halloween' }).ok, 'пак «Хеллоуин» выбирается в лобби');
+  check(hub.view(toks[0]).packs.find((p) => p.id === 'halloween').count === 10, 'в лобби у пака видно 10 дел');
+  toks.slice(1).forEach((tk, i) => { hub.handle(tk, 'room:join', { code, name: 'Х' + i }); hub.handle(tk, 'room:ready', {}); });
+  const room = hub.rooms.get(code);
+  const got = new Set();
+  for (let k = 0; k < 30; k++) {
+    room.status = 'lobby'; room.game = null; room.players.forEach((p) => { p.ready = true; });
+    if (!hub.handle(toks[0], 'room:start', {}).ok) break;
+    got.add(room.game.caseData.id); room.lastCaseId = room.game.caseData.id;
+  }
+  check(got.size >= 8 && [...got].every((id) => hw.some((c) => c.id === id)), `из пака «Хеллоуин» выпадают только его дела (${got.size} разных за 30 запусков)`);
+  // Сохранённый архив сервера получает новые дела один раз
+  const saved = JSON.parse(JSON.stringify(Cases.CASES.filter((c) => c.pack === 'main')));
+  const mm = Cases.mergeBuiltins(saved, saved.map((c) => c.id), Cases.TEXT_REV, Cases.PACK_REV);
+  check(mm.added === 10 && saved.filter((c) => c.pack === 'halloween').length === 10, `архив сервера получил ${mm.added} хеллоуинских дел`);
+  check(!Cases.mergeBuiltins(saved, mm.seen, mm.textRev, mm.packRev).added, 'второй запуск ничего не добавляет');
+  // Правка дела в админке не переносит его в другой пак
+  hub.setAdmin('adm', true);
+  const form = Object.assign({}, list.find((c) => c.id === hw[0].id), { teaser: hw[0].teaser + ' Правка.' });
+  delete form.pack; ['habits', 'proClues', 'relations', 'motives', 'secrets'].forEach((k) => delete form[k]);
+  const sv = hub.handle('adm', 'admin:case_save', { data: form });
+  check(sv.ok && sv.case.pack === 'halloween' && sv.case.habits.length === 16, 'правка дела в админке без поля пака оставляет дело в «Хеллоуине» вместе с приметами');
+  const mv = hub.handle('adm', 'admin:case_save', { data: Object.assign({}, form, { pack: 'main' }) });
+  check(mv.ok && mv.case.pack === 'main', 'в админке дело можно перенести в другой пак');
 }
 
 console.log(fails ? `провалов: ${fails}` : 'паки в порядке');

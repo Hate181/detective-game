@@ -84,7 +84,7 @@
 
       const packOpts = st.packs.map((p) => `
         <button class="case-opt random ${st.pack === p.id ? 'sel' : ''}" data-a="pack" data-id="${esc(p.id)}" ${isHost ? '' : 'disabled'}>
-          <span class="ci">${icon('random')}</span><h3>${esc(p.title)}</h3><small>${p.count} ${window.DetectiveContent.trans(p.count, 'дело', 'дела', 'дел')}. ${esc(p.desc)}</small>
+          <span class="ci">${icon(p.icon || 'random')}</span><h3>${esc(p.title)}</h3><small>${p.count} ${window.DetectiveContent.trans(p.count, 'дело', 'дела', 'дел')}. ${esc(p.desc)}</small>
         </button>`).join('');
       setHtml(root.querySelector('#lCases'), `
         <div class="panel-head"><h2>Выбор пака</h2><span class="count">${isHost ? 'выбираете вы' : 'выбирает ведущий'}</span></div>
