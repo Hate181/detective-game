@@ -1,6 +1,7 @@
 /* Экран «Дело закрыто»: итог, хронология вечера, очки, награды, улики, сезон, лента. */
 (function () {
-  const { esc, avatar, setHtml, fail } = UI;
+  const { esc, setHtml, fail } = UI;
+  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1);
   const Screens = (window.Screens = window.Screens || {});
   const TABS = [['chrono', 'Хронология'], ['score', 'Очки'], ['awards', 'Награды'], ['votes', 'Голоса'], ['clues', 'Улики'], ['season', 'Сезон'], ['log', 'Журнал']];
 

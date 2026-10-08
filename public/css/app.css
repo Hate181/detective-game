@@ -132,6 +132,13 @@ select.input option { background: var(--panel); }
 .av.sm { width: 26px; height: 26px; font-size: 12px; }
 .av.lg { width: 52px; height: 52px; font-size: 22px; }
 .av.off { filter: grayscale(.9) brightness(.7); }
+/* Номер места за столом: в углу аватара, чтобы к игроку можно было обратиться «третий». */
+.av { position: relative; }
+.av .seat { position: absolute; right: -5px; bottom: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; display: grid; place-items: center; font: 700 10px/1 var(--f-mono); font-style: normal; color: var(--amber-hi); background: #1a120b; border: 1px solid rgba(235, 164, 60, .7); box-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
+.av.sm .seat { min-width: 14px; height: 14px; font-size: 8.5px; right: -4px; bottom: -3px; padding: 0 3px; }
+.av.lg .seat, .speaker .av .seat, .vote-btn.big .av .seat { min-width: 22px; height: 22px; font-size: 12px; border-radius: 11px; }
+.speaker .av .seat { min-width: 26px; height: 26px; font-size: 14px; border-radius: 13px; right: -2px; bottom: -2px; }
+.vp .av .seat { display: none; }
 
 /* Лента места преступления */
 .tape { height: 14px; background: repeating-linear-gradient(-45deg, var(--amber) 0 14px, #12100a 14px 28px); background-size: 40px 40px; animation: tape-slide 8s linear infinite; }

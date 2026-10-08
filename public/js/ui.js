@@ -46,7 +46,8 @@
   /* Цвет игрока: золотой угол даёт различимые оттенки для десяти человек. */
   const hueOf = (idx) => Math.round((idx * 137.5 + 20) % 360);
   const initial = (name) => (String(name || '?').trim()[0] || '?').toUpperCase();
-  const avatar = (name, idx, cls = '') => `<span class="av ${cls}" style="--h:${hueOf(idx)}" aria-hidden="true">${esc(initial(name))}</span>`;
+  // seat: номер места за столом в партии, по нему к игроку можно обратиться голосом.
+  const avatar = (name, idx, cls = '', seat = null) => `<span class="av ${cls}" style="--h:${hueOf(idx)}" aria-hidden="true">${esc(initial(name))}${seat != null ? `<i class="seat">${seat}</i>` : ''}</span>`;
 
   const fmtClock = (ms) => {
     const s = Math.max(0, Math.ceil(ms / 1000));
@@ -139,7 +140,7 @@
       const m = modal((box, close) => {
         box.innerHTML = `<h3>${esc(title)}</h3>${sub ? `<p class="sub">${esc(sub)}</p>` : ''}
           <div class="opt-list">${items.map((it, i) => `<button class="opt" data-i="${i}" ${it.disabled ? 'disabled' : ''}>
-            ${it.avatarIdx != null ? avatar(it.name || it.title, it.avatarIdx) : '<span></span>'}
+            ${it.avatarIdx != null ? avatar(it.name || it.title, it.avatarIdx, '', it.seat) : '<span></span>'}
             <span><b>${esc(it.title)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`).join('')}</div>
           ${note ? `<p class="hint">${esc(note)}</p>` : ''}
           <div class="row"><button class="btn btn-ghost" data-cancel>${esc(cancel)}</button></div>`;

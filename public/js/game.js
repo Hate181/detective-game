@@ -1,7 +1,9 @@
 /* Экран партии v2: сверху очередь людей, в центре одна сцена с главным действием, под ней улики.
    Справа свернуть можно карточку, ниже журнал. Ведущий листает фазы кнопкой внизу. На телефоне три вкладки. */
 (function () {
-  const { esc, icon, avatar, hueOf, fmtClock, setHtml, toast, fail } = UI;
+  const { esc, icon, hueOf, fmtClock, setHtml, toast, fail } = UI;
+  // В партии у каждого аватара номер места: i — индекс игрока в порядке стола, номер на единицу больше.
+  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1);
   const Content = UI.Content;
   const T = Content.TRAITS;
   const Screens = (window.Screens = window.Screens || {});
@@ -186,14 +188,14 @@
         if (out) st = '<span class="st">вне игры</span>';
         else if (p.speaking || (g.phase === 'defense' && g.defense && g.defense.speaker === p.id)) { st = '<span class="st go">говорит</span>'; cls = 'speaking'; }
         else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.indexOf(p.id) >= 0 && (g.accuse.done || g.accuse.queue.indexOf(p.id) < g.accuse.idx)) st = '<span class="st ok">✓</span>';
-        else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.includes(p.id)) st = `<span class="st">${g.accuse.queue.indexOf(p.id) + 1}-й</span>`;
+        else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.includes(p.id)) st = `<span class="st">очередь ${g.accuse.queue.indexOf(p.id) + 1}</span>`;
         else if (g.phase === 'turns' && p.spoke) st = '<span class="st ok">✓</span>';
         else if (voting && p.voted) st = '<span class="st ok">✓</span>';
         else if ((g.phase === 'brief' || (g.phase === 'talk' && !g.manual)) && p.ready) st = '<span class="st ok">✓ готово</span>';
-        else if (g.phase === 'turns' && g.turn && g.turn.queue.includes(p.id)) st = `<span class="st">${g.turn.queue.indexOf(p.id) + 1}-й</span>`;
+        else if (g.phase === 'turns' && g.turn && g.turn.queue.includes(p.id)) st = `<span class="st">очередь ${g.turn.queue.indexOf(p.id) + 1}</span>`;
         const c = this.conn[p.id]; const off = c && !c.connected && !c.isBot;
         const role = out && p.role === 'killer' ? '<span class="role">убийца</span>' : out && p.role === 'accomplice' ? '<span class="role" style="color:var(--amber)">сообщник</span>' : '';
-        return `<button class="q-chip ${cls} ${isMe ? 'me' : ''} ${out ? 'out' : ''}" data-a="person" data-id="${esc(p.id)}" title="${esc(p.name)}: показать досье" data-pid="${esc(p.id)}">
+        return `<button class="q-chip ${cls} ${isMe ? 'me' : ''} ${out ? 'out' : ''}" data-a="person" data-id="${esc(p.id)}" title="№${i + 1} ${esc(p.name)}: показать досье" data-pid="${esc(p.id)}">
           ${p.host ? '<span class="crown">ведущий</span>' : ''}${role}${avatar(p.name, i, off ? 'off' : '')}
           <span class="nm">${esc(p.name)}${isMe ? ' (вы)' : ''}</span>${st || `<span class="st">${p.bot ? 'бот' : off ? 'нет связи' : p.auto ? 'авто' : ''}</span>`}</button>`;
       }).join('');
@@ -592,7 +594,7 @@
     },
 
     async pickPlayer(title, sub, ids, note) {
-      return UI.choose({ title, sub, note, items: ids.map((id) => ({ id, title: this.byId[id].name, name: this.byId[id].name, avatarIdx: this.idx[id], sub: this.byId[id].tags.map((t) => t.label).join(', ') || undefined })) });
+      return UI.choose({ title, sub, note, items: ids.map((id) => ({ id, title: this.byId[id].name, name: this.byId[id].name, avatarIdx: this.idx[id], seat: this.idx[id] + 1, sub: this.byId[id].tags.map((t) => t.label).join(', ') || undefined })) });
     },
     others() { return this.g.players.filter((p) => p.status === 'active' && p.id !== this.me.id).map((p) => p.id); },
 
