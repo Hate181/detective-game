@@ -122,6 +122,15 @@ function sendRoom(code) {
 
 const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_MS || 8000);
 
+// Игрок сменил фото: личность в хабе обновляется, комната сразу видит новое фото.
+auth.onAccountChange = (acc) => {
+  if (!acc) return;
+  const token = auth.tokenFor(acc);
+  hub.setIdentity(token, acc);
+  const room = hub.roomOf(token);
+  if (room) hub.notify(room);
+};
+
 io.use(security.connectionGuard);
 
 io.on('connection', (socket) => {

@@ -59,6 +59,16 @@
 
       <section><h2>Последние партии</h2>${hist}</section>
 
+      <section><h2>Фото</h2>
+        <p>Его видят все за столом: в лобби, в игре и на итогах партии.${a.provider === 'discord' && !a.ownPhoto ? ' Пока своего фото нет, показываем аватарку из Discord.' : ''}</p>
+        <div class="pf-photo">
+          <label class="btn btn-primary" for="pfPhoto">${a.ownPhoto ? 'Заменить фото' : 'Загрузить фото'}</label>
+          <input type="file" id="pfPhoto" accept="image/*" hidden>
+          ${a.ownPhoto ? `<button type="button" class="btn btn-ghost" data-photo-off>Убрать${a.providerAvatar ? ' и вернуть аватарку Discord' : ''}</button>` : ''}
+        </div>
+        <p class="hint">Подойдёт любая картинка: сайт сам вырежет квадрат по центру и уменьшит его.</p>
+      </section>
+
       <section><h2>Имя в игре</h2>
         <p>Его видят за столом и в таблице сезона, на всех устройствах.</p>
         <form class="pf-name-form" id="pfForm" autocomplete="off">
@@ -88,6 +98,7 @@
       root = this.root = root.firstChild; this.data = null; this.sig = null;
       document.title = 'Личный кабинет · Detective Game';
       root.addEventListener('click', (e) => this.onClick(e));
+      root.addEventListener('change', (e) => { if (e.target.id === 'pfPhoto' && e.target.files && e.target.files[0]) this.upload(e.target.files[0], e.target); });
       root.addEventListener('submit', (e) => {
         e.preventDefault();
         if (e.target.id === 'pfForm') this.save({ name: root.querySelector('#pfName').value });
@@ -123,6 +134,46 @@
       toast('Имя сохранено.');
       this.sig = null; this.render();
     },
+    /** Квадрат по центру, 192×192, JPEG. Большие фото с телефона ужимаем, пока файл не станет меньше 55 КБ. */
+    async shrink(file) {
+      // Картинку открываем без blob-адресов: их не пускает политика безопасности сайта.
+      const open = async () => {
+        if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e) { /* старый браузер, ниже запасной путь */ } }
+        const src = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); });
+        return new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+      };
+      try {
+        const img = await open();
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, side = Math.min(w, h);
+        if (!side) return null;
+        const c = document.createElement('canvas'); c.width = c.height = 192;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#1a120b'; ctx.fillRect(0, 0, 192, 192);
+        ctx.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, 192, 192);
+        if (img.close) img.close();
+        for (const q of [0.86, 0.75, 0.6, 0.45]) {
+          const data = c.toDataURL('image/jpeg', q);
+          if (data.length * 0.75 < 55 * 1024) return data;
+        }
+        return null;
+      } catch (e) { return null; }
+    },
+    async upload(file, input) {
+      input.value = '';
+      if (!/^image\//.test(file.type)) { toast('Это не картинка.', 'err'); return; }
+      if (file.size > 15 * 1024 * 1024) { toast('Файл слишком большой, нужен до 15 МБ.', 'err'); return; }
+      const image = await this.shrink(file);
+      if (!image) { toast('Не получилось открыть картинку. Попробуйте JPEG или PNG.', 'err'); return; }
+      this.photoDone(await App.postJson('/api/photo', { image }), 'Фото сохранено.', true);
+    },
+    photoDone(r, msg, own) {
+      if (!r || !r.ok) { toast((r && r.error) || 'Не получилось.', 'err'); return; }
+      const a = Net.me.account;
+      a.avatar = r.avatar; a.ownPhoto = own;
+      App.renderAccount();
+      toast(msg);
+      this.sig = null; this.render();
+    },
     async changePass() {
       const old = this.root.querySelector('#pfOld'), nw = this.root.querySelector('#pfNew');
       const r = await App.postJson('/auth/email/password', { old: old.value, password: nw.value });
@@ -136,6 +187,7 @@
     },
     async onClick(e) {
       if (e.target.closest('[data-reset]')) { this.save({ reset: true }); return; }
+      if (e.target.closest('[data-photo-off]')) { this.photoDone(await App.postJson('/api/photo', { remove: true }), 'Фото убрано.', false); return; }
       if (e.target.closest('[data-logout]')) {
         const inRoom = !!App.state;
         const ok = await UI.confirmBox({ title: 'Выйти из аккаунта?', sub: inRoom ? 'Вы сидите в комнате. Выйдя из аккаунта, вы потеряете это место.' : 'Дальше вы будете играть гостем.', ok: 'Выйти' });

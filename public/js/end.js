@@ -1,7 +1,8 @@
 /* Экран «Дело закрыто»: итог, хронология вечера, очки, награды, улики, сезон, лента. */
 (function () {
   const { esc, setHtml, fail } = UI;
-  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1);
+  let photoAt = {};
+  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1, i == null ? null : photoAt[i]);
   const Screens = (window.Screens = window.Screens || {});
   const TABS = [['chrono', 'Хронология'], ['score', 'Очки'], ['awards', 'Награды'], ['votes', 'Голоса'], ['clues', 'Улики'], ['season', 'Сезон'], ['log', 'Журнал']];
 
@@ -51,6 +52,8 @@
       const R = g.results;
       const byId = {}, idx = {};
       g.players.forEach((p, i) => { byId[p.id] = p; idx[p.id] = i; });
+      const photo = {}; (st.players || []).forEach((p) => { if (p.photo) photo[p.id] = p.photo; });
+      photoAt = {}; g.players.forEach((p, i) => { if (photo[p.id]) photoAt[i] = photo[p.id]; });
       this.byId = byId; this.idx = idx;
       const nm = (id) => (byId[id] ? byId[id].name : '?');
       const me = g.me;

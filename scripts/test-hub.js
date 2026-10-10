@@ -55,5 +55,22 @@ check(hub.view('adm').settings.discord === 'https://discord.gg/noirclub', 'сс�
 const s = hub.handle('adm', 'admin:sim', { games: 40, players: 8 });
 console.log('sim', JSON.stringify(s.sim));
 check(!s.sim.errors.length, 'симуляция без ошибок');
+{
+  // Фото за столом: из личности аккаунта, только разрешённые адреса, у гостей и ботов нет.
+  const ph = new Hub({ store, now: () => t });
+  ph.setIdentity('acc-a', { id: 'email:a', provider: 'email', name: 'Анна', avatar: '/photo/' + 'ab'.repeat(12) + '.jpg' });
+  ph.setIdentity('acc-b', { id: 'discord:1', provider: 'discord', name: 'Борис', avatar: 'https://cdn.discordapp.com/avatars/123/abc_1.png?size=128' });
+  ph.setIdentity('acc-c', { id: 'discord:2', provider: 'discord', name: 'Вера', avatar: 'https://evil.example/x.png' });
+  const { code } = ph.handle('acc-a', 'room:create', { name: 'Анна' });
+  ph.handle('acc-b', 'room:join', { code, name: 'Борис' });
+  ph.handle('acc-c', 'room:join', { code, name: 'Вера' });
+  ph.handle('guest-1', 'room:join', { code, name: 'Гость' });
+  const pl = ph.view('acc-a').players;
+  const by = (n) => pl.find((p) => p.name === n) || {};
+  check(by('Анна').photo === '/photo/' + 'ab'.repeat(12) + '.jpg' && /cdn\.discordapp\.com/.test(by('Борис').photo), 'своё фото и аватарка Discord видны за столом');
+  check(by('Вера').photo === null && by('Гость').photo === null, 'чужие адреса и гости без фото');
+  ph.setIdentity('acc-a', { id: 'email:a', provider: 'email', name: 'Анна', avatar: '' });
+  check(ph.view('acc-b').players.find((p) => p.name === 'Анна').photo === null, 'убранное фото сразу пропадает у всех');
+}
 console.log(fails ? `провалов: ${fails}` : 'хаб в порядке');
 process.exit(fails ? 1 : 0);

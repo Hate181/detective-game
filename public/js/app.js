@@ -60,6 +60,7 @@
     const av = a.avatar ? `<img class="acct-av" src="${UI.esc(a.avatar)}" alt="" referrerpolicy="no-referrer">` : `<span class="acct-av" style="background:${UI.esc(App.hue(a.name))}">${UI.esc(UI.initial(a.name))}</span>`;
     el.innerHTML = `<a class="acct-open" href="#/profile" title="Личный кабинет">${av}<span class="acct-name">${UI.esc(a.name)}</span><span class="acct-prov">${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : a.provider === 'email' ? 'почта' : 'тест'}</span></a>`;
   }
+  App.renderAccount = renderAccount;
   App.hue = (name) => `hsl(${[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 45% 38%)`;
   /** Имя, под которым гость сядет за стол. Сервер считает его так же, по токену браузера. */
   App.guestName = () => window.DetectiveHub.guestName(Net.token);

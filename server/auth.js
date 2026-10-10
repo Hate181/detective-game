@@ -25,7 +25,7 @@ function providers() {
       scope: 'identify',
       profile: (u) => ({
         id: String(u.id), name: u.global_name || u.username || 'Игрок Discord',
-        avatar: u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64` : '',
+        avatar: u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=128` : '',
       }),
     },
     google: {
@@ -56,10 +56,38 @@ function createAuth({ dataDir, port }) {
   }
 
   // Имена, которые игроки сами задали в профиле: по аккаунту, одинаковые на всех устройствах.
-  tighten(dataDir, ['session.key', 'profiles.json', 'accounts.json', 'users.json', 'stats.json']);
+  tighten(dataDir, ['session.key', 'profiles.json', 'accounts.json', 'users.json', 'stats.json', 'photos.json']);
   const PROFILES = path.join(dataDir, 'profiles.json');
   const profiles = Object.assign(Object.create(null), readSafe(PROFILES, {}));
   const saveProfiles = () => { try { writeSafe(PROFILES, profiles); } catch (e) { console.error('profiles', e.message); } };
+  // Фото профиля: аккаунт → номер файла в DATA_DIR/photos. Картинку сжимает браузер до квадрата 192×192 в JPEG,
+  // сервер принимает только небольшой JPEG и раздаёт его со своего адреса, а при смене фото старый файл удаляет.
+  const PHOTOS = path.join(dataDir, 'photos.json');
+  const PHOTO_DIR = path.join(dataDir, 'photos');
+  const photos = Object.assign(Object.create(null), readSafe(PHOTOS, {}));
+  const savePhotos = () => { try { writeSafe(PHOTOS, photos); } catch (e) { console.error('photos', e.message); } };
+  const PHOTO_ID = /^[a-f0-9]{24}$/, PHOTO_MAX = 60 * 1024;
+  const photoUrl = (pid) => `/photo/${pid}.jpg`;
+  const dropPhotoFile = (pid) => { if (PHOTO_ID.test(String(pid))) { try { fs.unlinkSync(path.join(PHOTO_DIR, pid + '.jpg')); } catch (e) { /* уже нет */ } } };
+  /** Размер JPEG из заголовка кадра (SOF). null, если это не похоже на целый JPEG. */
+  function jpegSize(buf) {
+    if (buf.length < 200 || buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) return null;
+    if (buf[buf.length - 2] !== 0xff || buf[buf.length - 1] !== 0xd9) return null;
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) return null;
+      const m = buf[i + 1];
+      if (m === 0xd8 || (m >= 0xd0 && m <= 0xd7) || m === 0x01) { i += 2; continue; }
+      const len = buf.readUInt16BE(i + 2);
+      if (len < 2) return null;
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+      i += 2 + len;
+    }
+    return null;
+  }
+  const photoChanges = new Map();
+  setInterval(() => { const now = Date.now(); for (const [k, r] of photoChanges) if (now - r.first > 3600e3) photoChanges.delete(k); }, 10 * 60e3).unref();
+  const photoLimited = (id) => { const r = photoChanges.get(id); if (!r || Date.now() - r.first > 3600e3) { photoChanges.set(id, { n: 1, first: Date.now() }); return false; } r.n++; return r.n > 20; };
   // Аккаунты по почте: почта, соль и хэш пароля (scrypt). Писем сайт не отправляет, сброс пароля делает админ.
   // Файл только для сервера (0600), с копией прошлой версии и суточными снимками: потерять аккаунты хуже, чем упасть.
   const ACCOUNTS = path.join(dataDir, 'accounts.json');
@@ -157,7 +185,9 @@ function createAuth({ dataDir, port }) {
     const id = `${s.p}:${s.id}`;
     const own = profiles[id];
     // Имя из Discord чистим так же, как заданное вручную: без невидимых символов и не под гостя.
-    return { provider: s.p, id, name: own || cleanName(s.n) || 'Игрок', providerName: String(s.n || '').replace(/[\p{C}]/gu, '').slice(0, 40), custom: !!own, avatar: String(s.a || '') };
+    const pa = /^https:\/\//.test(String(s.a || '')) ? String(s.a) : '';
+    // Своё фото важнее аватарки из Discord.
+    return { provider: s.p, id, name: own || cleanName(s.n) || 'Игрок', providerName: String(s.n || '').replace(/[\p{C}]/gu, '').slice(0, 40), custom: !!own, avatar: photos[id] ? photoUrl(photos[id]) : pa, ownPhoto: !!photos[id], providerAvatar: pa };
   }
   /** Постоянный токен в хабе для аккаунта: один и тот же на любом устройстве. */
   // Подписан секретом сервера: по публичному ID в Discord или Google токен не вычислить.
@@ -179,7 +209,7 @@ function createAuth({ dataDir, port }) {
       res.set('Cache-Control', 'no-store');
       const acc = accountFrom(req.headers.cookie);
       res.json({
-        account: acc ? { provider: acc.provider, name: acc.name, providerName: acc.providerName, custom: acc.custom, avatar: acc.avatar } : null,
+        account: acc ? { provider: acc.provider, name: acc.name, providerName: acc.providerName, custom: acc.custom, avatar: acc.avatar, ownPhoto: acc.ownPhoto, providerAvatar: acc.providerAvatar } : null,
         community: env('DISCORD_SERVER_URL', 'https://discord.gg/hfWsKkGVH'),
         contact: env('CONTACT_EMAIL', 'support@detective-game.org'),
         providers: { discord: !!(cfg.discord.id && cfg.discord.secret), google: !!(cfg.google.id && cfg.google.secret), email: true, dev },
@@ -200,6 +230,44 @@ function createAuth({ dataDir, port }) {
       profiles[acc.id] = name;
       saveProfiles();
       res.json({ ok: true, name });
+    });
+
+    // Фото профиля: {image: 'data:image/jpeg;base64,...'} или {remove: true}.
+    app.post('/api/photo', require('express').json({ limit: '100kb' }), (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      const origin = req.get('origin');
+      if (origin && origin !== baseUrl(req)) return res.status(403).json({ ok: false });
+      const acc = accountFrom(req.headers.cookie);
+      if (!acc) return res.status(401).json({ ok: false, error: 'Фото могут ставить только вошедшие игроки.' });
+      if (photoLimited(acc.id)) return res.status(429).json({ ok: false, error: 'Слишком часто. Попробуйте через час.' });
+      const body = req.body || {};
+      const old = photos[acc.id];
+      if (body.remove === true) {
+        if (old) { delete photos[acc.id]; savePhotos(); dropPhotoFile(old); try { purge(PHOTOS, (d) => { if (!d || !d[acc.id]) return false; delete d[acc.id]; return true; }); } catch (e) { /* копия без записи */ } }
+        const fresh = accountFrom(req.headers.cookie);
+        api.onAccountChange(fresh);
+        return res.json({ ok: true, avatar: fresh.avatar });
+      }
+      const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(typeof body.image === 'string' ? body.image : '');
+      const buf = m ? Buffer.from(m[1], 'base64') : null;
+      const size = buf && buf.length <= PHOTO_MAX ? jpegSize(buf) : null;
+      if (!size || size.w < 32 || size.h < 32 || size.w > 512 || size.h > 512) return res.status(400).json({ ok: false, error: 'Не получилось прочитать картинку. Попробуйте другую.' });
+      const pid = crypto.randomBytes(12).toString('hex');
+      try {
+        fs.mkdirSync(PHOTO_DIR, { recursive: true, mode: 0o700 });
+        fs.writeFileSync(path.join(PHOTO_DIR, pid + '.jpg'), buf, { mode: 0o600 });
+      } catch (e) { console.error('photo', e.message); return res.status(500).json({ ok: false, error: 'Не получилось сохранить фото.' }); }
+      photos[acc.id] = pid; savePhotos();
+      if (old) dropPhotoFile(old);
+      const fresh = accountFrom(req.headers.cookie);
+      api.onAccountChange(fresh);
+      res.json({ ok: true, avatar: fresh.avatar });
+    });
+    // Файл фото: адрес случайный и меняется вместе с фото, поэтому кэшируется навсегда.
+    app.get('/photo/:file', (req, res) => {
+      const mm = /^([a-f0-9]{24})\.jpg$/.exec(req.params.file);
+      if (!mm) return res.status(404).end();
+      res.sendFile(path.join(PHOTO_DIR, mm[1] + '.jpg'), { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=31536000, immutable', 'Content-Disposition': 'inline' } }, (e) => { if (e && !res.headersSent) res.status(404).end(); });
     });
 
     /* ---------- Вход по почте ---------- */
@@ -346,10 +414,11 @@ function createAuth({ dataDir, port }) {
     const id = 'email:' + a.id;
     delete accounts[mail]; byId.delete(a.id); saveAccounts();
     delete profiles[id]; saveProfiles();
+    if (photos[id]) { dropPhotoFile(photos[id]); delete photos[id]; savePhotos(); }
     delete users[id]; usersDirty = true; saveUsers();
     // Из резервной копии и суточных снимков тоже, иначе почта и хэш пароля пролежали бы там ещё две недели.
     const without = (key) => (data) => { if (!data || !Object.prototype.hasOwnProperty.call(data, key)) return false; delete data[key]; return true; };
-    try { purge(ACCOUNTS, without(mail)); purge(PROFILES, without(id)); purge(USERS, without(id)); } catch (e) { console.error('purge', e.message); }
+    try { purge(ACCOUNTS, without(mail)); purge(PROFILES, without(id)); purge(USERS, without(id)); purge(PHOTOS, without(id)); } catch (e) { console.error('purge', e.message); }
     return { id, name: a.name };
   }
 
@@ -375,7 +444,8 @@ function createAuth({ dataDir, port }) {
     };
   }
 
-  return { mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword, deleteAccount, touchUser, usersSummary, flushUsers: () => { usersDirty = true; saveUsers(); } };
+  const api = { onAccountChange: () => {}, mount, accountFrom, tokenFor, describe, enabled, parseCookies, resetPassword, deleteAccount, touchUser, usersSummary, flushUsers: () => { usersDirty = true; saveUsers(); } };
+  return api;
 }
 
 module.exports = { createAuth };

@@ -65,7 +65,7 @@
       this.seen = this.seen || new Set();
       const rows = st.players.map((p) => { const fresh = !this.seen.has(p.id); this.seen.add(p.id); return `
         <div class="row-p ${p.id === st.realMeId ? 'me' : ''} ${fresh && this.seen.size > 1 ? 'enter' : ''}">
-          ${avatar(p.name, p.seat)}
+          ${avatar(p.name, p.seat, '', null, p.photo)}
           <div style="min-width:0"><div class="nm">${esc(p.name)}${p.id === st.realMeId ? ' <span class="muted">(вы)</span>' : ''}</div>
             ${p.away ? '<div class="muted" style="font-size:12px">отошёл на главную</div>' : !p.connected && !p.isBot ? '<div class="muted" style="font-size:12px">нет связи</div>' : ''}</div>
           <div class="tags">

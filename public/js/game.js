@@ -3,7 +3,9 @@
 (function () {
   const { esc, icon, hueOf, fmtClock, setHtml, toast, fail } = UI;
   // В партии у каждого аватара номер места: i — индекс игрока в порядке стола, номер на единицу больше.
-  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1);
+  // Фото игроков по месту за столом: заполняется при каждой отрисовке из состояния комнаты.
+  let photoAt = {};
+  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1, i == null ? null : photoAt[i]);
   const Content = UI.Content;
   const T = Content.TRAITS;
   const Screens = (window.Screens = window.Screens || {});
@@ -89,6 +91,7 @@
       this.idx = {}; this.byId = {}; this.conn = {};
       g.players.forEach((p, i) => { this.idx[p.id] = i; this.byId[p.id] = p; });
       st.players.forEach((p) => { this.conn[p.id] = p; });
+      photoAt = {}; g.players.forEach((p, i) => { if (this.conn[p.id] && this.conn[p.id].photo) photoAt[i] = this.conn[p.id].photo; });
       const key = `${st.code}:${g.players.map((p) => p.id).join()}:${g.case.title}:${g.god ? g.god.seed : ''}`;
       if (key !== this.gameKey) { this.gameKey = key; this.seenClues = null; this.phaseKey = null; this.lastChat = 0; }
 
@@ -594,7 +597,7 @@
     },
 
     async pickPlayer(title, sub, ids, note) {
-      return UI.choose({ title, sub, note, items: ids.map((id) => ({ id, title: this.byId[id].name, name: this.byId[id].name, avatarIdx: this.idx[id], seat: this.idx[id] + 1, sub: this.byId[id].tags.map((t) => t.label).join(', ') || undefined })) });
+      return UI.choose({ title, sub, note, items: ids.map((id) => ({ id, title: this.byId[id].name, name: this.byId[id].name, avatarIdx: this.idx[id], seat: this.idx[id] + 1, photo: photoAt[this.idx[id]], sub: this.byId[id].tags.map((t) => t.label).join(', ') || undefined })) });
     },
     others() { return this.g.players.filter((p) => p.status === 'active' && p.id !== this.me.id).map((p) => p.id); },
 

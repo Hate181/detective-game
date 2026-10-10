@@ -9,6 +9,8 @@
   const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const CODE_LENGTH = 5;
   const NAME_MAX = 18;
+  // Фото за столом: файл с нашего сервера или аватарка Discord. Другие адреса в комнату не попадают.
+  const PHOTO_URL = /^(\/photo\/[a-f0-9]{24}\.jpg|https:\/\/cdn\.discordapp\.com\/avatars\/\d{1,24}\/[a-z0-9_]{1,64}\.png\?size=\d{2,4})$/;
   const OFFLINE_AUTOPILOT_MS = 12000;
   const HOST_PASS_MS = 45000;
 
@@ -80,6 +82,13 @@
     /** Личность из входа через Discord/Google. Для гостей записи нет. */
     setIdentity(token, ident) { if (ident) this.identities.set(token, ident); else this.identities.delete(token); }
     identityOf(token) { return this.identities.get(token) || null; }
+    /** Фото игрока за столом: своё, загруженное в профиль, или аватарка из Discord. У гостей и ботов нет. */
+    photoOf(p) {
+      if (!p || p.isBot) return null;
+      const ident = this.identities.get(p.token);
+      const url = ident && typeof ident.avatar === 'string' ? ident.avatar : '';
+      return PHOTO_URL.test(url) ? url : null;
+    }
     /** Гость вошёл в аккаунт посреди партии: место в комнате переходит на токен аккаунта. */
     migrate(fromToken, toToken) {
       if (!fromToken || !toToken || fromToken === toToken) return false;
@@ -539,7 +548,7 @@
       return {
         serverNow: this.now(), code: room.code, status: room.status, hostId: room.hostId, caseChoice: room.caseChoice, pack: room.pack || 'main', settings: Object.assign({}, room.settings),
         test: room.test, isAdmin: admin, meId, realMeId: me.id, speed: room.settings.speed,
-        players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
+        players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, photo: this.photoOf(p), ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
         rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
         packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),

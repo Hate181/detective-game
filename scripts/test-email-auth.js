@@ -62,6 +62,7 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check(!auth.accountFrom(second), 'после сброса старые входы закрыты');
   r = await post('/auth/email/login', { email: 'mira@example.com', password: reset.password });
   check(r.body.ok, 'вход с временным паролем');
+  const live = r.cookie;
   check(!(await auth.resetPassword('nobody@example.com')), 'сброс для несуществующей почты ничего не делает');
 
   // чужой сайт
@@ -99,15 +100,53 @@ const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', ms
   check(fs.readdirSync(path.join(dir, 'backup')).some((f) => /^accounts-\d{4}-\d{2}-\d{2}\.json$/.test(f)), 'есть суточный снимок аккаунтов');
   check(!fs.readFileSync(path.join(dir, 'accounts.json'), 'utf8').includes(reset.password), 'временный пароль на диск не попадает');
 
+  // фото профиля
+  const jpeg = (w, h, pad = 400) => {
+    const sof = Buffer.from([0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 255, w >> 8, w & 255, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+    return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]), sof, Buffer.from([0xff, 0xda, 0x00, 0x02]), Buffer.alloc(pad, 0x55), Buffer.from([0xff, 0xd9])]);
+  };
+  const durl = (b) => 'data:image/jpeg;base64,' + b.toString('base64');
+  const me = async (cookie) => (await (await fetch(base + '/api/me', { headers: { cookie } })).json()).account;
+  r = await post('/api/photo', { image: durl(jpeg(192, 192)) });
+  check(r.status === 401, 'гость не может поставить фото');
+  r = await post('/api/photo', { image: 'data:image/png;base64,' + jpeg(192, 192).toString('base64') }, live);
+  check(r.status === 400, 'принимается только JPEG');
+  r = await post('/api/photo', { image: durl(Buffer.concat([Buffer.from('<svg onload=alert(1)>'), jpeg(192, 192)])) }, live);
+  check(r.status === 400, 'файл, который только притворяется JPEG, отклоняется');
+  r = await post('/api/photo', { image: durl(jpeg(4000, 4000)) }, live);
+  check(r.status === 400, 'огромная картинка отклоняется');
+  r = await post('/api/photo', { image: durl(jpeg(192, 192, 70 * 1024)) }, live);
+  check(r.status === 400 || r.status === 413, 'файл больше 60 КБ отклоняется');
+  const xo = await fetch(base + '/api/photo', { method: 'POST', headers: { 'content-type': 'application/json', cookie: live, origin: 'https://evil.example' }, body: JSON.stringify({ image: durl(jpeg(192, 192)) }) });
+  check(xo.status === 403, 'чужой сайт не может сменить фото игрока');
+  let changed = 0; auth.onAccountChange = () => { changed++; };
+  r = await post('/api/photo', { image: durl(jpeg(192, 192)) }, live);
+  check(r.body.ok && /^\/photo\/[a-f0-9]{24}\.jpg$/.test(r.body.avatar) && changed === 1, 'фото сохранено, комната узнаёт о смене');
+  const p1 = r.body.avatar;
+  let g = await fetch(base + p1);
+  check(g.status === 200 && g.headers.get('content-type') === 'image/jpeg' && /immutable/.test(g.headers.get('cache-control')), 'фото отдаётся как картинка и кэшируется');
+  check(mode('photos.json') === 0o600 && mode('photos/' + p1.slice(7)) === 0o600, 'файлы фото доступны только серверу');
+  let m1 = await me(live);
+  check(m1.avatar === p1 && m1.ownPhoto === true, 'в профиле видно своё фото');
+  r = await post('/api/photo', { image: durl(jpeg(160, 160)) }, live);
+  check(r.body.ok && r.body.avatar !== p1 && (await fetch(base + p1)).status === 404, 'новое фото заменяет старое, старый файл удалён');
+  const p2 = r.body.avatar;
+  check((await fetch(base + '/photo/..%2Fphotos.json')).status === 404 && (await fetch(base + '/photo/' + 'a'.repeat(24) + '.jpg')).status === 404, 'по адресу фото не достать другие файлы');
+  r = await post('/api/photo', { remove: true }, live);
+  m1 = await me(live);
+  check(r.body.ok && m1.avatar === '' && !m1.ownPhoto && (await fetch(base + p2)).status === 404 && changed === 3, 'фото можно убрать');
+
   // удаление аккаунта по просьбе игрока
   r = await post('/auth/email/register', { email: 'del@example.com', password: 'удалить-меня', name: 'Удалим' });
   const delCookie = r.cookie;
+  const delPhoto = (await post('/api/photo', { image: durl(jpeg(192, 192)) }, delCookie)).body.avatar;
   const gone = auth.deleteAccount('DEL@example.com');
   check(gone && gone.name === 'Удалим' && !auth.accountFrom(delCookie), 'удалённый аккаунт сразу теряет все входы');
   r = await post('/auth/email/login', { email: 'del@example.com', password: 'удалить-меня' });
   check(!r.body.ok, 'войти в удалённый аккаунт нельзя');
   const onDisk = ['accounts.json', 'accounts.json.bak'].concat(fs.readdirSync(path.join(dir, 'backup')).map((f) => 'backup/' + f)).filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes('del@example.com'));
   check(!onDisk.length, `почты удалённого аккаунта нет ни в файле, ни в копиях: ${onDisk.join(', ') || 'чисто'}`);
+  check(delPhoto && (await fetch(base + delPhoto)).status === 404 && !fs.readFileSync(path.join(dir, 'photos.json'), 'utf8').includes(gone.id), 'фото удалённого аккаунта стёрто');
   check(!auth.deleteAccount('del@example.com'), 'повторное удаление ничего не делает');
 
   // перебор чужих почт через регистрацию упирается в лимит
