@@ -134,8 +134,9 @@ for (const n of [6, 7, 8, 10]) {
   toVote(st, ['kick']); voteFor(st, inno[0]); // 4: 1 и 3
   toVote(st, ['kick']); voteFor(st, inno[1]); // 3: 1 и 2, финал
   check(game.phase !== PH.VERDICT, 'один преступник против двух невиновных, дело идёт');
-  toVote(st, ['poll']); voteFor(st, game.accompliceId);
   toVote(st, ['final']);
+  check(game.vote.kind === 'final' && game.poll.skipped && game.vote.candidates.length === 3 && game.defense.order.length === 3, 'при троих опроса нет: речи защиты у всех и сразу решающее голосование');
+  check(game.feed.some((f) => /опрос не нужен/.test(f.text)) && !game.feed.some((f) => /Итоги опроса/.test(f.text)), 'в журнале объяснено, почему без опроса');
   voteFor(st, inno[2]);
   check(game.phase === PH.VERDICT && game.verdict.reason === 'outnumbered', '1 на 1: преступник побеждает, за столом не остаётся одного человека');
   check(act(game).length === 2, 'за столом двое');

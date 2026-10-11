@@ -280,7 +280,19 @@
     pushFeed(game, now, { kind: 'turn', who: a.speakerId, text: `Обвинительная минута: ${nm(game, a.speakerId)}.` });
   }
 
-  const toVote = (game, now) => startVote(game, now, isFinale(game) ? 'poll' : 'kick');
+  const toVote = (game, now) => {
+    if (!isFinale(game)) return startVote(game, now, 'kick');
+    // В финал проходит на одного больше, чем ещё можно исключить. Если это все, кто остался (трое за столом),
+    // опрос ничего не отсеивает: сразу речи защиты всех и решающее голосование.
+    const left = active(game).map((p) => p.id);
+    const finalLeft = game.gang ? Math.min(2, left.length - 1) : 1;
+    if (finalLeft + 1 < left.length) return startVote(game, now, 'poll');
+    game.finalLeft = finalLeft;
+    game.poll = { count: {}, finalists: left.slice(), skipped: true };
+    game.defense = { order: game.rng.shuffle(left), idx: -1 };
+    pushFeed(game, now, { kind: 'system', text: `За столом ${left.length === 3 ? 'трое' : 'двое'}, опрос не нужен. Каждый произносит речь в свою защиту, потом решающее голосование.` });
+    nextDefender(game, now);
+  };
 
   /* «Назад» у ведущего. Рассказы, обсуждение и обвинительные минуты листаются шагами, и каждый шаг можно вернуть,
      пока после него ничего не случилось: никто ничего не раскрыл и не сыграл карту.
