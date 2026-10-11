@@ -304,6 +304,72 @@ for (const n of [6, 7, 8, 9, 10]) {
 }
 
 {
+  // Ничья между двумя хозяевами «Адвоката»: карту предлагают обоим, если поровну осталось, крутится рулетка
+  const setup = (seed) => {
+    const st = start(8, seed);
+    const { game } = st;
+    toPhase(st, [PH.VOTE]);
+    const ids = act(game);
+    const [a, b] = ids;
+    [a, b].forEach((id) => { game.players[id].cards = game.players[id].cards.filter((c) => c.type !== 'advocate'); game.players[id].cards.push({ type: 'advocate', used: false }); });
+    ids.slice(2).forEach((id) => { const p = game.players[id]; p.cards = p.cards.filter((c) => c.type !== 'advocate'); });
+    const split = (st2) => { act(game).forEach((id, i) => E.act(game, id, 'vote', { target: id === a ? b : id === b ? a : i % 2 ? a : b }, st.now += 10)); E.skip(game, st.now += 100); };
+    split(); // первое голосование: поровну, переголосование
+    split(); // переголосование: снова поровну
+    return { st, game, a, b };
+  };
+  {
+    const { st, game, a, b } = setup(21);
+    const ov = game.overlay;
+    check(ov && ov.type === 'save' && ov.pending.length === 2 && ov.pending.includes(a) && ov.pending.includes(b), 'ничья у двух хозяев Адвоката: карту предлагают обоим');
+    const v = E.view(game, b);
+    check(v.overlay.options && v.overlay.options.includes('advocate') && v.overlay.pending.length === 2, 'второму тоже видна кнопка Адвоката');
+    E.act(game, a, 'save', { card: 'advocate' }, st.now += 10);
+    check(game.overlay && game.overlay.type === 'save' && game.overlay.pending.join() === b, 'после ответа первого ждём второго');
+    E.act(game, b, 'save', { card: 'advocate' }, st.now += 10);
+    check(game.overlay && game.overlay.type === 'lottery' && game.overlay.candidates.length === 2, 'оба сыграли, голосов снова поровну: рулетка');
+    const before = game.kicks.length;
+    E.skip(game, st.now += 100);
+    const k = game.kicks[game.kicks.length - 1];
+    check(game.kicks.length === before + 1 && [a, b].includes(k.id) && k.via === 'random', 'рулетка исключает одного из двоих');
+    check(!has(game, a, 'advocate') && !has(game, b, 'advocate'), 'обе карты потрачены');
+  }
+  {
+    const { st, game, a, b } = setup(22);
+    E.act(game, a, 'save', { card: 'advocate' }, st.now += 10);
+    E.act(game, b, 'save', { card: 'none' }, st.now += 10);
+    const k = game.kicks[game.kicks.length - 1];
+    check(!game.overlay && k && k.id === b, 'сыграл только один: исключают второго');
+  }
+  {
+    const { st, game, a } = setup(23);
+    E.act(game, a, 'save', { card: 'none' }, st.now += 10);
+    E.skip(game, st.now += 60000); // второй не ответил вовремя
+    check(game.overlay && game.overlay.type === 'lottery', 'никто не сыграл: рулетка');
+  }
+  {
+    // Один лидер сыграл Адвоката и сравнялся с другим хозяином карты: тому тоже предлагают, потом рулетка
+    const st = start(8, 24);
+    const { game } = st;
+    toPhase(st, [PH.VOTE]);
+    const ids = act(game);
+    const [a, b] = ids;
+    ids.forEach((id) => { const p = game.players[id]; p.cards = p.cards.filter((c) => c.type !== 'advocate'); });
+    [a, b].forEach((id) => game.players[id].cards.push({ type: 'advocate', used: false }));
+    // a: 4 голоса, b: 3, ещё один голос у c
+    const c = ids[2];
+    const plan = { [a]: b, [b]: a, [c]: a, [ids[3]]: a, [ids[4]]: a, [ids[5]]: b, [ids[6]]: b, [ids[7]]: c };
+    ids.forEach((id) => E.act(game, id, 'vote', { target: plan[id] }, st.now += 10));
+    E.skip(game, st.now += 100);
+    check(game.overlay && game.overlay.type === 'save' && game.overlay.pending.join() === a, 'один лидер: Адвоката предлагают ему');
+    E.act(game, a, 'save', { card: 'advocate' }, st.now += 10);
+    check(game.overlay && game.overlay.type === 'save' && game.overlay.pending.join() === b, 'после Адвоката сравнялся с другим хозяином карты: предлагают ему');
+    E.act(game, b, 'save', { card: 'none' }, st.now += 10);
+    check(game.overlay && game.overlay.type === 'lottery', 'поровну осталось: рулетка, а не тихий случайный выбор');
+  }
+}
+
+{
   // Боты доигрывают партии с новыми картами без ошибок
   for (const n of [6, 8, 10]) {
     const r = E.simulate({ caseData: Cases.CASES[n % Cases.CASES.length], games: 15, players: n, seed: 9 });

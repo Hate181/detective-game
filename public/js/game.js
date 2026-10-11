@@ -17,7 +17,7 @@
     killer: { cls: 'role-killer', name: 'Убийца', hint: 'Не выдайте себя. Улики ниже указывают на вас.', gang: 'Не выдайте себя и сообщника. Вам подходят три улики из четырёх, сообщнику тоже три, а кому-то из невиновных столько же.' },
     accomplice: { cls: 'role-accomplice', name: 'Сообщник', hint: 'Вы знаете убийцу. Уводите подозрения.', gang: 'Вы знаете убийцу, и вас обоих ищут. Каждому из вас подходят три улики из четырёх. Вы победите, если хоть один останется в игре или если вас станет столько же, сколько невиновных.' },
   };
-  const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса дважды разделились поровну, задержала полиция.', final: 'Итог финального голосования.' };
+  const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса разделились поровну, задержала полиция.', final: 'Итог финального голосования.' };
   const PASSIVE = ['advocate', 'trail'];
   const HOST_BTN = {
     brief: ['Начать дело', 'Откроется первая улика'],
@@ -60,7 +60,9 @@
       </div>`;
       this.root = root.firstElementChild;
       this.seenClues = null; this.phaseKey = null; this.gameKey = null; this.lastChat = 0; this.unread = false;
-      this.dockOpen = false; this.godOpen = false;
+      this.dockOpen = false; this.godOpen = false; this.lastSpeaker = null; this.queueTouched = 0;
+      const touched = () => { this.queueTouched = Date.now(); };
+      ['touchstart', 'touchmove', 'wheel', 'pointerdown'].forEach((t) => this.root.querySelector('#gQueue').addEventListener(t, touched, { passive: true }));
       this.chat = UI.makeLog(this.root.querySelector('#pLog'));
       this.root.addEventListener('click', (e) => this.onClick(e));
       this.root.addEventListener('toggle', (e) => { if (e.target.id === 'dockD') this.dockOpen = e.target.open; if (e.target.id === 'godD') this.godOpen = e.target.open; if (e.target.id === 'pCard') this.cardOpen = e.target.open; }, true);
@@ -202,10 +204,16 @@
           ${p.host ? '<span class="crown">ведущий</span>' : ''}${role}${avatar(p.name, i, off ? 'off' : '')}
           <span class="nm">${esc(p.name)}${isMe ? ' (вы)' : ''}</span>${st || `<span class="st">${p.bot ? 'бот' : off ? 'нет связи' : p.auto ? 'авто' : ''}</span>`}</button>`;
       }).join('');
-      if (setHtml(this.root.querySelector('#gQueue'), chips)) {
-        const sp = this.root.querySelector('.q-chip.speaking');
-        if (sp && sp.scrollIntoView) { try { sp.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }); } catch (e) { /* ничего */ } }
-      }
+      const q = this.root.querySelector('#gQueue');
+      setHtml(q, chips);
+      // Ленту двигаем к говорящему только при смене говорящего и только саму ленту (страница стоит на месте).
+      // Если человек только что листал ленту пальцем, не мешаем ему.
+      const sp = q && q.querySelector('.q-chip.speaking'), spId = sp ? sp.dataset.id : '';
+      if (spId === this.lastSpeaker) return;
+      this.lastSpeaker = spId;
+      if (!sp || Date.now() - (this.queueTouched || 0) < 6000) return;
+      const left = sp.offsetLeft - (q.clientWidth - sp.offsetWidth) / 2;
+      try { q.scrollTo({ left: Math.max(0, left), behavior: 'smooth' }); } catch (e) { q.scrollLeft = Math.max(0, left); }
     },
 
     /* ---------- Сцена ---------- */
@@ -234,7 +242,8 @@
         } else if (killer) alibi = `<p>Ваше алиби: <b>${esc(alibiTxt(me.card.alibi.claim))}</b>. На самом деле вы были в «${esc(g.case.scene)}».</p>`;
         return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>Прочитайте дело и свою карточку</h3><p>Обстоятельства дела всю партию висят наверху. Стройте рассказ так, чтобы он с ними сходился.</p></div>
           ${alibi}
-          <div class="act-row"><button class="btn btn-primary" data-a="ready" ${me.ready ? 'disabled' : ''}>${me.ready ? 'Всё готово' : 'Карточка прочитана'}</button><span class="muted">Готовы: ${readyN} из ${g.players.length}</span></div>`;
+          <div class="act-row"><button class="btn btn-primary" data-a="ready" ${me.ready ? 'disabled' : ''}>${me.ready ? 'Всё готово' : 'Карточка прочитана'}</button><span class="muted">Готовы: ${readyN} из ${g.players.length}</span></div>
+          ${me.isHost ? '<div class="act-row recase"><span class="muted">Это дело уже играли?</span><button class="btn btn-sm btn-ghost" data-a="recase">Сменить дело</button></div>' : ''}`;
       }
 
       if (g.phase === 'clue') {
@@ -462,11 +471,15 @@
       if (this.lotKey) { this.lotKey = null; host.innerHTML = ''; host._html = undefined; }
       if (!ov) { setHtml(host, ''); return; }
       const nm = (id) => (this.byId[id] ? this.byId[id].name : '?');
-      const mine = ov.nomineeId === me.id && me.status === 'active';
+      const pending = ov.pending || [ov.nomineeId], all = ov.nominees || pending;
+      const mine = pending.includes(me.id) && me.status === 'active';
       const opts = (mine && ov.options) || [];
       const adv = opts.includes('advocate');
-      const lead = !mine ? `${esc(nm(ov.nomineeId))} решает, сыграть ли Адвоката.`
-        : 'Вас собираются исключить.' + (adv ? ' «Адвокат» отменит один голос против вас.' : '');
+      const others = all.filter((id) => id !== me.id).map((id) => esc(nm(id)));
+      const waitFor = pending.map((id) => esc(nm(id))).join(' и ');
+      const lead = !mine ? (pending.length > 1 ? `${waitFor} решают, сыграть ли Адвоката.` : `${waitFor} решает, сыграть ли Адвоката.`)
+        : (all.length > 1 ? `Голоса против вас и ${others.join(' и ')} разделились поровну.` : 'Вас собираются исключить.')
+          + (adv ? ' «Адвокат» отменит один голос против вас.' : '') + (all.length > 1 ? ' Если поровну останется, решит полиция.' : '');
       const btns = mine ? `<div class="row-acts">${adv ? '<button class="btn btn-primary" data-a="advocate" data-play="1">Сыграть Адвоката</button>' : ''}<button class="btn" data-a="advocate" data-play="0">Не играть</button></div>` : '<div class="wait"><span class="dots"><i></i><i></i><i></i></span></div>';
       const inner = `<h3>Адвокат <span class="left" data-end="${ov.endsAt}">0:00</span></h3>
         <p>${lead}</p>${btns}`;
@@ -558,6 +571,14 @@
       if (a === 'endspeech') return this.act('endspeech');
       if (a === 'accomplice') return this.act('accomplice', { mode: b.dataset.mode, target: b.dataset.id });
       if (a === 'card') return this.playCard(b.dataset.type);
+      if (a === 'recase') {
+        const cur = (this.st.cases || []).find((c) => c.title === g.case.title);
+        const id = await UI.pickCase(this.st, { title: 'Сменить дело', sub: 'Партия начнётся заново с другим делом, карточки раздадутся заново.', current: cur && cur.id });
+        if (!id) return;
+        const r = await Net.call('room:recase', { caseId: id });
+        if (!r.ok) fail(r); else toast('Дело сменилось. Прочитайте новую карточку.');
+        return;
+      }
       if (a === 'hnext') return this.act('host', { do: 'next', step: g.step });
       if (a === 'hback') return this.act('host', { do: 'back', step: g.step });
       if (a === 'hext') return this.act('host', { do: 'extend' });

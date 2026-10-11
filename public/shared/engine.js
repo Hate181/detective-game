@@ -420,8 +420,7 @@
     const max = Math.max(...v.candidates.map((id) => v.count[id]));
     const leaders = v.candidates.filter((id) => v.count[id] === max);
     if (leaders.length > 1 && max > 0 && !v.runoff) return startVote(game, now, 'kick', { candidates: leaders, runoff: true });
-    if (leaders.length > 1) return startLottery(game, now, leaders, 'random');
-    resolveKick(game, now, leaders[0], v.runoff ? 'runoff' : 'vote');
+    settleKick(game, now, leaders, leaders.length > 1 ? 'random' : v.runoff ? 'runoff' : 'vote');
   }
 
   /** Ничья, которую голосованием не разрешить: «Полиция решает, кого задержать». Все видят рулетку,
@@ -436,7 +435,8 @@
     const ov = game.overlay;
     game.overlay = null;
     pushFeed(game, now, { kind: 'vote', text: `Полиция задерживает: ${nm(game, ov.winnerId)}.` });
-    resolveKick(game, now, ov.winnerId, ov.via);
+    // «Адвоката» всем, кто делил первое место, уже предлагали до рулетки.
+    doKick(game, now, ov.winnerId, ov.via);
   }
 
   function tallyPoll(game, now) {
@@ -465,29 +465,39 @@
     fillMissingVotes(game, v);
     v.count = voteCounts(game, v.votes, v.candidates);
     logVotes(game, now, v);
+    settleKick(game, now, voteLeaders(game, 'final'), 'final');
+  }
+
+  /** Кто впереди по текущему счёту. В финале ничью сначала решает опрос. */
+  function voteLeaders(game, via) {
+    const v = game.vote;
     const max = Math.max(...v.candidates.map((id) => v.count[id]));
     let leaders = v.candidates.filter((id) => v.count[id] === max);
-    if (leaders.length > 1) {
+    if (leaders.length > 1 && via === 'final' && game.poll) {
       const pmax = Math.max(...leaders.map((id) => game.poll.count[id] || 0));
       leaders = leaders.filter((id) => (game.poll.count[id] || 0) === pmax);
     }
-    if (leaders.length > 1) return startLottery(game, now, leaders, 'final');
-    resolveKick(game, now, leaders[0], 'final');
+    return leaders;
   }
 
-  function resolveKick(game, now, leaderId, via) {
-    const lp = P(game, leaderId);
+  const votersAgainst = (game, id) => Object.keys(game.vote.votes).filter((by) => game.vote.votes[by] === id && by !== id && P(game, by).status === 'active');
+
+  /** Исключение по итогам голосования. Каждому из лидеров с «Адвокатом» на руках его предлагают
+      (один раз за голосование, всем сразу). Если после этого первое место всё ещё делят, решает рулетка. */
+  function settleKick(game, now, leaders, via) {
     const v = game.vote;
-    const voters = Object.keys(v.votes).filter((by) => v.votes[by] === leaderId && by !== leaderId && P(game, by).status === 'active');
-    const options = [];
-    if (unusedCard(lp, 'advocate') >= 0 && voters.length > 0) options.push('advocate');
-    if (options.length) {
-      game.overlay = { type: 'save', nomineeId: leaderId, via, options, voters, endsAt: now + dur(game, 'advocate') };
+    v.asked = v.asked || [];
+    const ask = leaders.filter((id) => !v.asked.includes(id) && unusedCard(P(game, id), 'advocate') >= 0 && votersAgainst(game, id).length > 0);
+    if (ask.length) {
+      v.asked.push(...ask);
+      game.overlay = { type: 'save', nomineeId: ask[0], nominees: ask.slice(), pending: ask.slice(), played: [], via, options: ['advocate'], endsAt: now + dur(game, 'advocate') };
       game.autoAt = null;
-      pushFeed(game, now, { kind: 'system', text: `${lp.name} может сыграть карту защиты.` });
+      const names = ask.map((id) => nm(game, id));
+      pushFeed(game, now, { kind: 'system', text: names.length > 1 ? `${names.join(' и ')} могут сыграть карту защиты.` : `${names[0]} может сыграть карту защиты.` });
       return;
     }
-    doKick(game, now, leaderId, via);
+    if (leaders.length > 1) return startLottery(game, now, leaders, via === 'final' ? 'final' : 'random');
+    doKick(game, now, leaders[0], via);
   }
 
   function doKick(game, now, id, via) {
@@ -769,33 +779,32 @@
   /** Карта защиты, когда вас исключают: «Адвокат» или ничего. */
   HANDLERS.save = (game, p, pl, now) => {
     const ov = game.overlay;
-    if (!ov || ov.type !== 'save' || ov.nomineeId !== p.id) bad('Сейчас вам нечего защищать.');
+    if (!ov || ov.type !== 'save' || !ov.pending.includes(p.id)) bad('Сейчас вам нечего защищать.');
     const card = pl.card || 'none';
     if (card !== 'none' && !ov.options.includes(card)) bad('Такой карты у вас нет.');
-    resolveSave(game, now, card, pl.target);
+    ov.pending = ov.pending.filter((id) => id !== p.id);
+    if (card === 'advocate') ov.played.push(p.id);
+    if (ov.pending.length) { ov.nomineeId = ov.pending[0]; return; }
+    resolveSave(game, now);
   };
   // Старое имя действия: «играть Адвоката» или «не играть».
   HANDLERS.advocate = (game, p, pl, now) => HANDLERS.save(game, p, { card: pl.play ? 'advocate' : 'none' }, now);
 
-  function resolveSave(game, now, card, target) {
+  /** Все ответили (или время вышло): каждый сыгранный «Адвокат» снимает один голос против хозяина карты. */
+  function resolveSave(game, now) {
     const ov = game.overlay;
-    const nominee = P(game, ov.nomineeId);
     const v = game.vote;
     game.overlay = null;
-    let leader = ov.nomineeId;
-    if (card === 'advocate') {
+    ov.played.forEach((id) => {
+      const nominee = P(game, id);
       nominee.cards[unusedCard(nominee, 'advocate')].used = true;
-      const voters = Object.keys(v.votes).filter((by) => v.votes[by] === nominee.id && by !== nominee.id && P(game, by).status === 'active');
-      const drop = game.rng.pick(voters);
-      delete v.votes[drop];
-      v.count = voteCounts(game, v.votes, v.candidates);
+      delete v.votes[game.rng.pick(votersAgainst(game, id))];
       pushFeed(game, now, { kind: 'card', text: `${nominee.name} играет Адвоката: один голос против отменён.` });
-      const max = Math.max(...v.candidates.map((id) => v.count[id]));
-      const leaders = v.candidates.filter((id) => v.count[id] === max);
-      leader = leaders.length > 1 ? game.rng.pick(leaders) : leaders[0];
-      if (leader !== nominee.id) pushFeed(game, now, { kind: 'card', text: `Адвокат спас ${nominee.name}, но исключают другого игрока.` });
-    }
-    doKick(game, now, leader, ov.via);
+    });
+    if (ov.played.length) v.count = voteCounts(game, v.votes, v.candidates);
+    const leaders = voteLeaders(game, ov.via);
+    if (leaders.length === 1 && ov.played.length && !ov.played.includes(leaders[0])) pushFeed(game, now, { kind: 'card', text: `Адвокат спас ${ov.played.map((id) => nm(game, id)).join(' и ')}, исключают другого игрока.` });
+    settleKick(game, now, leaders, leaders.length > 1 && ov.via !== 'final' ? 'random' : ov.via);
   }
 
   /* Карты действий: только в общем обсуждении */
@@ -935,7 +944,7 @@
 
   function resolveOverlayTimeout(game, now) {
     const ov = game.overlay;
-    if (ov.type === 'save') resolveSave(game, now, 'none');
+    if (ov.type === 'save') resolveSave(game, now);
     else if (ov.type === 'lottery') finishLottery(game, now);
   }
 
@@ -1074,7 +1083,7 @@
       accomplice: !!game.accompliceId, gang: !!game.gang,
       criminals: game.gang && !hideRoles(game) ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
       kicksLeft: game.gang && game.round >= ROUNDS ? game.finalLeft : null,
-      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, candidates: ov.candidates, winnerId: ov.winnerId, options: me && ov.nomineeId === me.id ? ov.options : null } : null,
+      players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, nominees: ov.nominees || null, pending: ov.pending || null, candidates: ov.candidates, winnerId: ov.winnerId, options: me && ov.pending && ov.pending.includes(me.id) ? ov.options : null } : null,
       accuse: acc ? { speakerId: acc.speakerId, idx: acc.idx, total: acc.queue.length, queue: acc.queue, done: acc.done } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,

@@ -6,6 +6,16 @@
   const roomLink = (code) => (Net.mode === 'server' ? `${location.origin}/r/${code}` : `${location.href.split('#')[0]}#/room/${code}`);
   const seg = (a, opts, cur, can) => `<div class="seg" role="group">${opts.map(([v, t]) => `<button data-a="${a}" data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}" ${can ? '' : 'disabled'}>${t}</button>`).join('')}</div>`;
 
+  // Строка «Дело» под паками: случайное или выбранное ведущим.
+  const caseRow = (st, isHost) => {
+    const c = st.caseChoice !== 'random' && (st.cases || []).find((x) => x.id === st.caseChoice);
+    const what = c ? `<b>${esc(c.title)}</b>` : '<b>случайное</b>';
+    const hint = c ? 'Выбрано ведущим на эту партию.' : 'Выпадет дело, которое вы играли реже всего.';
+    return `<div class="set-row"><div><div class="label">Дело: ${what}</div><p class="hint" style="margin:4px 0 0">${hint} Карточки в каждой партии раздаются заново.</p></div>
+      ${isHost ? `<button class="btn btn-sm" data-a="case">${c ? 'Изменить' : 'Выбрать дело'}</button>` : ''}</div>`;
+  };
+  const pickCase = (st, o) => UI.pickCase(st, o);
+
   Screens.lobby = {
     mount(root) {
       this.seen = new Set();
@@ -31,6 +41,10 @@
         if (a === 'link') UI.copyText(roomLink(st.code), 'Ссылка скопирована. Отправьте её напарникам.');
         else if (a === 'code') UI.copyText(st.code, 'Код скопирован');
         else if (a === 'pack') call('room:pack', { packId: b.dataset.id });
+        else if (a === 'case') {
+          const id = await pickCase(st, { title: 'Какое дело открыть', sub: 'Выбор действует на одну партию. Потом дело снова выбирается случайно.' });
+          if (id) call('room:case', { caseId: id });
+        }
         else if (a === 'discuss' || a === 'turn') call('room:setting', { key: a, value: Number(b.dataset.v) });
         else if (a === 'mode') call('room:setting', { key: 'mode', value: b.dataset.v });
         else if (a === 'hints') call('room:setting', { key: 'hints', value: b.dataset.v });
@@ -89,7 +103,7 @@
       setHtml(root.querySelector('#lCases'), `
         <div class="panel-head"><h2>Выбор пака</h2><span class="count">${isHost ? 'выбираете вы' : 'выбирает ведущий'}</span></div>
         <div class="case-grid">${packOpts}</div>
-        <p class="hint" style="margin:12px 0 0">Дело из пака выберется случайно при старте и не повторит прошлое. Карточки в каждой партии раздаются заново.</p>`);
+        ${caseRow(st, isHost)}`);
 
       const s = st.settings;
       setHtml(root.querySelector('#lSet'), `

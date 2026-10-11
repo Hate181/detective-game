@@ -168,5 +168,61 @@ check(sameKiller / cmpKillers < 0.12, `профессия убийцы совп�
   check(mv.ok && mv.case.pack === 'main', 'в админке дело можно перенести в другой пак');
 }
 
+// 6. Выбор дела ведущим и случайное дело без повторов в комнате
+{
+  const store6 = { getCases: () => list, saveCases() {}, getStats: () => store6.s, saveStats(s) { store6.s = s; }, s: null };
+  const hub6 = new Hub({ store: store6, now: () => t });
+  const toks = Array.from({ length: 6 }, (_, i) => 'cs_' + i);
+  const { code } = hub6.handle(toks[0], 'room:create', { name: 'Ведущий' });
+  const room = hub6.rooms.get(code);
+  toks.slice(1).forEach((tk, i) => { hub6.handle(tk, 'room:join', { code, name: 'Игрок' + i }); hub6.handle(tk, 'room:ready', {}); });
+  check(!hub6.handle(toks[1], 'room:case', { caseId: 'lyra' }).ok, 'не ведущий дело не выбирает');
+  const pick = main[3].id;
+  check(hub6.handle(toks[0], 'room:case', { caseId: pick }).ok && hub6.view(toks[1]).caseChoice === pick, 'ведущий выбрал дело в лобби, его видят все');
+  hub6.handle(toks[0], 'room:start', {});
+  check(room.game.caseData.id === pick, 'партия открылась с выбранным делом');
+  check(room.caseChoice === 'random', 'выбор действует на одну партию');
+  // смена дела на вводной
+  check(!hub6.handle(toks[1], 'room:recase', { caseId: 'random' }).ok, 'не ведущий дело не меняет');
+  check(!hub6.handle(toks[0], 'room:recase', { caseId: pick }).ok, 'то же дело второй раз не открыть');
+  const other = main[5].id;
+  const r1 = hub6.handle(toks[0], 'room:recase', { caseId: other });
+  check(r1.ok && room.game.caseData.id === other && room.game.phase === 'brief', 'на вводной ведущий сменил дело на выбранное');
+  const r2 = hub6.handle(toks[0], 'room:recase', { caseId: 'random' });
+  check(r2.ok && room.game.caseData.id !== other, 'смена на случайное даёт другое дело');
+  const v = hub6.view(toks[0]);
+  check(v.cases.every((c) => c.pack) && v.playedCases.includes(pick) && v.playedCases.includes(other), 'в состоянии комнаты есть пак дел и уже открытые дела');
+  room.game.phase = 'clue';
+  check(!hub6.handle(toks[0], 'room:recase', { caseId: 'random' }).ok, 'после вводной дело уже не сменить');
+  // «Следующее дело» без повторов, пока в паке есть несыгранные
+  const ids = [room.game.caseData.id];
+  for (let i = 0; i < 11; i++) {
+    room.game.phase = 'ended';
+    const r = hub6.handle(toks[0], 'room:next', {});
+    if (!r.ok) { check(false, 'следующее дело: ' + r.error); break; }
+    ids.push(room.game.caseData.id);
+  }
+  const fresh = ids.filter((id) => id !== pick && id !== other);
+  check(new Set(fresh).size === fresh.length && !fresh.includes(pick) && !fresh.includes(other), `12 партий подряд в комнате без повторов (${new Set(ids).size} разных)`);
+  // Игроки с аккаунтом: дело, которое они недавно играли, выпадает последним
+  const store7 = { getCases: () => list, saveCases() {}, getStats: () => store7.s, saveStats(s) { store7.s = s; }, s: null };
+  const hub7 = new Hub({ store: store7, now: () => t });
+  const all7 = hub7.enabledCases().filter((c) => (c.pack || 'main') === 'main');
+  const s7 = hub7._stats();
+  s7.career.acc1 = { games: all7.length - 1, history: all7.slice(0, -1).map((c) => ({ case: c.title })) };
+  store7.saveStats(s7);
+  let hits = 0;
+  for (let k = 0; k < 20; k++) {
+    const tk = Array.from({ length: 6 }, (_, i) => `a${k}_${i}`);
+    const { code: c7 } = hub7.handle(tk[0], 'room:create', { name: 'Ведущий' });
+    const room7 = hub7.rooms.get(c7);
+    room7.players[0].account = 'acc1';
+    tk.slice(1).forEach((x, i) => { hub7.handle(x, 'room:join', { code: c7, name: 'И' + i }); hub7.handle(x, 'room:ready', {}); });
+    hub7.handle(tk[0], 'room:start', {});
+    if (room7.game.caseData.id === all7[all7.length - 1].id) hits++;
+  }
+  check(hits === 20, `несыгранное компанией дело выбрано ${hits} из 20 раз`);
+}
+
 console.log(fails ? `провалов: ${fails}` : 'паки в порядке');
 process.exit(fails ? 1 : 0);

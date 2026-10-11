@@ -361,9 +361,31 @@
       const pool = inPack.length ? inPack : all;
       const chosen = room.caseChoice !== 'random' && Cases.byId(room.caseChoice, all);
       if (chosen) return { c: chosen, random: false };
-      const fresh = pool.filter((c) => c.id !== room.lastCaseId);
-      const list = fresh.length ? fresh : pool;
+      // Случайное дело, которое эта компания играла реже всего: считаем партии в этой комнате
+      // и недавние партии игроков с аккаунтом. Прошлое дело комнаты не повторяем, если есть выбор.
+      const seen = this._seenCases(room);
+      const notLast = pool.filter((c) => c.id !== room.lastCaseId);
+      const base = notLast.length ? notLast : pool;
+      const min = Math.min(...base.map((c) => seen[c.id] || 0));
+      const list = base.filter((c) => (seen[c.id] || 0) === min);
       return { c: list[this._rand(list.length)], random: true };
+    }
+    /** Сколько раз дела уже попадались этой компании: { caseId: n }. */
+    _seenCases(room) {
+      const seen = Object.create(null);
+      (room.playedCases || []).forEach((id) => { seen[id] = (seen[id] || 0) + 1; });
+      let career = null;
+      try { career = this._stats().career; } catch (e) { career = null; }
+      if (career) {
+        const byTitle = Object.create(null);
+        this.enabledCases().forEach((c) => { byTitle[c.title] = c.id; });
+        room.players.forEach((p) => {
+          const c = !p.isBot && !p.left && p.account && career[p.account];
+          if (!c || !Array.isArray(c.history)) return;
+          c.history.forEach((h) => { const id = h && byTitle[h.case]; if (id) seen[id] = (seen[id] || 0) + 1; });
+        });
+      }
+      return seen;
     }
 
     _startGame(room, opts = {}) {
@@ -371,6 +393,8 @@
       if (members.length < (room.test ? TEST_MIN : MIN_PLAYERS) && !opts.force) fail('cannot_start', 'Не хватает игроков.');
       if (members.length < TEST_MIN) fail('cannot_start', `Нужно минимум ${TEST_MIN} человека.`);
       const { c, random } = opts.caseData ? { c: opts.caseData, random: false } : this._pickCase(room);
+      // Выбор конкретного дела действует на одну партию: «Следующее дело» снова берёт случайное.
+      room.caseChoice = 'random';
       const host = members.find((p) => p.id === room.hostId);
       let forceKiller = null, forceAccomplice = null;
       if (room.test && host) {
@@ -391,6 +415,7 @@
       room.status = 'playing';
       room.statsDone = false;
       room.lastCaseId = c.id;
+      room.playedCases = (room.playedCases || []).concat(c.id).slice(-60);
       members.forEach((p) => { p.ready = p.isBot || p.id === room.hostId; });
       this._log(room, `Дело открыто: ${c.title}.`);
       this._touch(room); this.notify(room);
@@ -406,6 +431,21 @@
       room.players.forEach((p) => { p.ready = p.isBot; });
       room.status = 'lobby'; room.game = null;
       this._log(room, 'Лобби снова открыто.');
+      this.notify(room);
+    }
+
+    /** Ведущий меняет дело на вводной, пока партия не началась (например, выпало уже сыгранное). Карточки раздаются заново. */
+    ev_room_recase(token, { caseId } = {}) {
+      const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
+      this._host(room, token);
+      if (room.status !== 'playing' || !room.game || room.game.phase !== 'brief') fail('in_progress', 'Дело можно сменить только на вводной, до первой улики.');
+      const all = this.enabledCases();
+      if (caseId !== 'random' && !Cases.byId(caseId, all)) fail('bad_case', 'Такого дела нет в архиве.');
+      if (caseId === room.lastCaseId) fail('same_case', 'Это дело уже открыто.');
+      room.caseChoice = caseId === 'random' ? 'random' : caseId;
+      room.players = room.players.filter((p) => !p.left);
+      this._startGame(room, { force: true });
+      this._log(room, 'Ведущий сменил дело.');
       this.notify(room);
     }
 
@@ -552,7 +592,8 @@
         rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
         packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
-        cases: this.enabledCases().map(({ id, title, icon, victim, difficulty, teaser }) => ({ id, title, icon, victim, difficulty, teaser })),
+        cases: this.enabledCases().map(({ id, title, icon, victim, difficulty, teaser, pack }) => ({ id, title, icon, victim, difficulty, teaser, pack: pack || 'main' })),
+        playedCases: (room.playedCases || []).slice(),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,
       };

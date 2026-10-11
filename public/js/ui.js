@@ -154,7 +154,7 @@
       const m = modal((box, close) => {
         box.innerHTML = `<h3>${esc(title)}</h3>${sub ? `<p class="sub">${esc(sub)}</p>` : ''}
           <div class="opt-list">${items.map((it, i) => `<button class="opt" data-i="${i}" ${it.disabled ? 'disabled' : ''}>
-            ${it.avatarIdx != null ? avatar(it.name || it.title, it.avatarIdx, '', it.seat, it.photo) : '<span></span>'}
+            ${it.avatarIdx != null ? avatar(it.name || it.title, it.avatarIdx, '', it.seat, it.photo) : it.icon ? `<span class="opt-ic">${icon(it.icon)}</span>` : '<span></span>'}
             <span><b>${esc(it.title)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`).join('')}</div>
           ${note ? `<p class="hint">${esc(note)}</p>` : ''}
           <div class="row"><button class="btn btn-ghost" data-cancel>${esc(cancel)}</button></div>`;
@@ -167,6 +167,17 @@
       const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { obs.disconnect(); if (!done) resolve(null); } });
       obs.observe(document.getElementById('modalRoot'), { childList: true });
     });
+  }
+
+  /* Выбор дела ведущим: «случайное» или конкретное дело текущего пака. st: состояние комнаты. → Promise<id|null> */
+  function pickCase(st, { title, sub, current } = {}) {
+    const played = {};
+    (st.playedCases || []).forEach((id) => { played[id] = (played[id] || 0) + 1; });
+    const inPack = (st.cases || []).filter((c) => (c.pack || 'main') === (st.pack || 'main'));
+    const items = [{ id: 'random', title: 'Случайное дело', sub: 'Выпадет то, что вы играли реже всего', icon: 'random' }]
+      .concat(inPack.map((c) => ({ id: c.id, title: c.title, icon: c.icon, disabled: c.id === current,
+        sub: c.id === current ? 'Открыто сейчас' : played[c.id] ? `Уже было в этой комнате${played[c.id] > 1 ? ` ${played[c.id]} раза` : ''}` : c.victim })));
+    return choose({ title, sub, items });
   }
 
   /* Окно с текстовым вводом → Promise<string|null> */
@@ -236,5 +247,5 @@
     };
   }
 
-  window.UI = { esc, $, $$, icon, ICONS, hueOf, initial, avatar, fmtClock, setHtml, toast, fail, modal, choose, ask, confirmBox, copyText, makeLog, Content };
+  window.UI = { esc, $, $$, icon, ICONS, hueOf, initial, avatar, fmtClock, setHtml, toast, fail, modal, choose, pickCase, ask, confirmBox, copyText, makeLog, Content };
 })();

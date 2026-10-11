@@ -127,7 +127,7 @@
     }
 
     function botAct(game, p, now) {
-      if (game.overlay) return p.status === 'active' && game.overlay.nomineeId === p.id ? act(game, p.id, 'save', saveChoice(game, p), now).ok : false;
+      if (game.overlay) return p.status === 'active' && (game.overlay.pending || []).includes(p.id) ? act(game, p.id, 'save', saveChoice(game, p), now).ok : false;
       const m = mem(game, p);
       const ph = game.phase;
       if (ph === PH.BRIEF) {
