@@ -26,6 +26,10 @@
     socket.on('connect_error', () => emit('status', 'off'));
     socket.on('room:state', (s) => { Net.offset = s.serverNow - Date.now(); emit('state', s); });
     socket.on('room:kicked', (d) => emit('kicked', d || {}));
+    // Вернулись во вкладку, а связь за это время пропала: подключаемся сразу, не дожидаясь паузы между попытками.
+    const wake = () => { if (document.visibilityState === 'visible' && !socket.connected) { socket.disconnect(); socket.connect(); } };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
     socket.on('room:left', () => emit('left', {}));
     return {
       mode: 'server',

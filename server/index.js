@@ -69,7 +69,12 @@ const server = http.createServer(app);
 // Клиент сокетов отдаём сами (/vendor/socket.io.min.js): так он сжат и попадает под общий лимит запросов.
 // perMessageDeflate: состояние комнаты похоже на предыдущее, и со сжатием трафик меньше в десятки раз
 // (нагрузочный тест: 1000 игроков, 150 КБ/с против 7,7 МБ/с без сжатия). memLevel 4 экономит память на каждом игроке.
-const io = new Server(server, { serveClient: false, perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { memLevel: 4, level: 6 } }, cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingTimeout: 20000 });
+// Свёрнутая вкладка или окно браузера под Discord: Chrome обрабатывает её события раз в минуту.
+// С ожиданием ответа на пинг в 20 секунд такие игроки отваливались каждую минуту («моргали»),
+// а у ведущего партия уходила на таймеры. Ждём ответа дольше минуты: закрытая вкладка всё равно
+// отключается сразу, дольше висит только связь, пропавшая молча.
+const PING_TIMEOUT_MS = Number(process.env.PING_TIMEOUT_MS || 70000);
+const io = new Server(server, { serveClient: false, perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { memLevel: 4, level: 6 } }, cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingInterval: 25000, pingTimeout: PING_TIMEOUT_MS });
 
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: hub.rooms.size, sockets: io.engine.clientsCount, uptime: Math.round(process.uptime()) }));
 app.use(express.static(path.join(__dirname, '..', 'public'), {

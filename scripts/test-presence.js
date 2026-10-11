@@ -39,6 +39,16 @@ const after = hub.view(tok(3)).game.me;
 check(after.id === before.id && after.role === before.role, 'после возврата тот же игрок и та же роль');
 check(hub.view(tok(1)).players.find((p) => p.name === 'Игрок3').auto === false, 'автопилот выключается после возврата');
 
+// 2б. Ведущего без связи ждём минуту: партия не уходит на таймеры от короткого обрыва
+hub.setConnected(tok(1), false);
+t += 30000; hub.tick(t);
+check(hub.view(tok(2)).players.find((p) => p.name === 'Ведущий').auto === false && hub.view(tok(2)).game.manual === true, 'ведущий 30 секунд без связи: управление остаётся у него');
+t += 35000; hub.tick(t);
+check(hub.view(tok(2)).players.find((p) => p.name === 'Ведущий').auto === true, 'через минуту без связи партию ведёт автопилот');
+hub.setConnected(tok(1), true); t += 400; hub.tick(t);
+check(hub.view(tok(2)).game.manual === true && hub.view(tok(2)).game.hostId === hub.view(tok(1)).realMeId, 'ведущий вернулся: управление снова у него');
+check(hub.view(tok(2)).cases.length === 0, 'в идущей партии список дел не рассылается');
+
 // 3. Ушёл на главную: место держится, автопилот включается, возвращение выключает
 hub.handle(tok(4), 'room:away', { away: true });
 check(hub.view(tok(1)).players.find((p) => p.name === 'Игрок4').away === true, 'отошедший виден в списке');

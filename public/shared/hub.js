@@ -12,7 +12,9 @@
   // Фото за столом: файл с нашего сервера или аватарка Discord. Другие адреса в комнату не попадают.
   const PHOTO_URL = /^(\/photo\/[a-f0-9]{24}\.jpg|https:\/\/cdn\.discordapp\.com\/avatars\/\d{1,24}\/[a-z0-9_]{1,64}\.png\?size=\d{2,4})$/;
   const OFFLINE_AUTOPILOT_MS = 12000;
-  const HOST_PASS_MS = 45000;
+  // Ведущего ждём дольше: без него партия уходит на таймеры, и он теряет управление.
+  const HOST_AUTOPILOT_MS = 60000;
+  const HOST_PASS_MS = 120000;
 
   class HubError extends Error { constructor(code, message, extra) { super(message); this.code = code; this.extra = extra || null; } }
   const fail = (code, msg, extra) => { throw new HubError(code, msg, extra); };
@@ -495,7 +497,8 @@
             const gp = g.players[lp.id];
             if (!gp) continue;
             const off = !lp.connected || lp.away;
-            if (off && lp.offlineSince && now - lp.offlineSince > OFFLINE_AUTOPILOT_MS) gp.auto = true;
+            const wait = lp.id === room.hostId && !lp.away ? HOST_AUTOPILOT_MS : OFFLINE_AUTOPILOT_MS;
+            if (off && lp.offlineSince && now - lp.offlineSince > wait) gp.auto = true;
             else if (!off && !lp.forceAuto) gp.auto = false;
             if (lp.forceAuto) gp.auto = true;
           }
@@ -592,7 +595,8 @@
         rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
         packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
-        cases: this.enabledCases().map(({ id, title, icon, victim, difficulty, teaser, pack }) => ({ id, title, icon, victim, difficulty, teaser, pack: pack || 'main' })),
+        // Список дел нужен ведущему для выбора: в лобби и на вводной. В партии он только раздувал каждое обновление.
+        cases: room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.enabledCases().map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
         playedCases: (room.playedCases || []).slice(),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,

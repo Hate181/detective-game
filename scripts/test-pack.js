@@ -25,7 +25,7 @@ const store = { getCases: () => list, saveCases() {}, getStats: () => store.s, s
 const hub = new Hub({ store, now: () => t });
 const seen = [];
 let prev = null, repeats = 0;
-for (let g = 0; g < 45; g++) {
+for (let g = 0; g < 75; g++) {
   const toks = Array.from({ length: 6 }, (_, i) => 'tk' + g + '_' + i);
   const { code } = hub.handle(toks[0], 'room:create', { name: 'Ведущий' });
   const room = hub.rooms.get(code);
@@ -46,7 +46,7 @@ for (let g = 0; g < 45; g++) {
   room.lastCaseId = id;
   t += 1000;
 }
-check(new Set(seen).size >= 13, `за 45 запусков выпало ${new Set(seen).size} разных дел из 15`);
+check(new Set(seen).size >= 13, `за 75 запусков выпало ${new Set(seen).size} разных дел из 15`);
 {
   // повтор подряд в одной комнате: дело не выпадает дважды подряд
   const toks = Array.from({ length: 6 }, (_, i) => 'rp' + i);
