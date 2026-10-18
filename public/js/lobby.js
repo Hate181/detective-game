@@ -49,6 +49,7 @@
         else if (a === 'mode') call('room:setting', { key: 'mode', value: b.dataset.v });
         else if (a === 'hints') call('room:setting', { key: 'hints', value: b.dataset.v });
         else if (a === 'ready') call('room:ready');
+        else if (a === 'seat') call('room:seat');
         else if (a === 'start') call('room:start');
         else if (a === 'leave') call('room:leave');
         else if (a === 'close') { const ok = await UI.confirmBox({ title: 'Закрыть комнату?', sub: 'Все игроки выйдут из комнаты, код перестанет работать.', ok: 'Закрыть комнату', danger: true }); if (ok) call('room:close'); }
@@ -118,10 +119,12 @@
       const cs = st.canStart;
       const admin = st.isAdmin && st.test ? `<button class="btn btn-sm" data-a="admin" data-v="bot" ${n >= st.rules.max ? 'disabled' : ''}>+ Бот</button><button class="btn btn-sm" data-a="admin" data-v="ready">Все готовы</button>` : '';
       const why = cs.ok ? '<b>Все на месте.</b> Можно открывать дело.' : esc(cs.reason);
-      const main = isHost
+      const main = st.watching
+        ? `<button class="btn btn-primary" data-a="seat" ${st.seatsLeft > 0 ? '' : 'disabled'}>Сесть за стол</button>`
+        : isHost
         ? `<button class="btn btn-primary" data-a="start" ${cs.ok ? '' : 'disabled'}>Начать партию</button>`
         : `<button class="btn ${me.ready ? '' : 'btn-primary'}" data-a="ready">${me.ready ? 'Отменить готовность' : 'Всё готово'}</button>`;
-      setHtml(root.querySelector('#lBar'), `<div class="why">${isHost ? why : (me.ready ? 'Вы готовы. Ждём остальных и ведущего.' : 'Нажмите «Всё готово», когда будете на месте.')}</div>
+      setHtml(root.querySelector('#lBar'), `<div class="why">${st.watching ? (st.seatsLeft > 0 ? 'Вы зритель. Освободилось место, можно сесть за стол.' : 'Вы зритель: все десять мест заняты.') : isHost ? why : (me.ready ? 'Вы готовы. Ждём остальных и ведущего.' : 'Нажмите «Всё готово», когда будете на месте.')}</div>
         <div class="acts">${admin}${isHost ? '<button class="btn btn-ghost" data-a="close">Закрыть комнату</button>' : ''}<button class="btn btn-ghost" data-a="leave">Выйти</button>${main}</div>`);
     },
     unmount() {},

@@ -46,6 +46,7 @@
     pause: svg(`<rect x="9" y="7" width="5" height="18" rx="1.5" fill="currentColor"/><rect x="18" y="7" width="5" height="18" rx="1.5" fill="currentColor"/>`),
     restart: svg(`<path d="M8 16a8 8 0 1 0 2.5-5.8" ${S} stroke-linecap="round"/><path d="M8 6v5h5" ${S} stroke-linecap="round" stroke-linejoin="round"/>`),
     undo: svg(`<path d="M12 9 6 15l6 6" ${S} stroke-linecap="round" stroke-linejoin="round"/><path d="M6 15h12a7 7 0 0 1 0 14h-4" ${S} stroke-linecap="round"/>`),
+    eye: svg(`<path d="M3 16s5-8 13-8 13 8 13 8-5 8-13 8S3 16 3 16z" ${S} stroke-linejoin="round"/><circle cx="16" cy="16" r="3.600" ${S}/>`),
     mic: svg(`<rect x="12" y="4" width="8" height="14" rx="4" ${S}/><path d="M8 15a8 8 0 0 0 16 0M16 23v5M11 28h10" ${S} stroke-linecap="round"/>`),
     warrant: svg(`<path d="M8 3h12l5 5v21H8z" ${S} stroke-linejoin="round"/><path d="M20 3v5h5M12 14h9M12 18h9M12 22h5" ${S} stroke-linecap="round"/>`),
   };
