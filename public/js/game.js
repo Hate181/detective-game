@@ -19,6 +19,8 @@
   };
   const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса разделились поровну, задержала полиция.', final: 'Итог финального голосования.' };
   const PASSIVE = ['advocate', 'trail'];
+  // Зритель: своей карточки нет, кнопок нет. Экран тот же, что у игроков, только без личного.
+  const WATCHER = { id: null, status: 'watch', role: null, card: null, cards: [], notes: [], revealed: {}, ready: false, isHost: false, can: { reveal: [], locked: [], card: false, vote: false, endturn: false, endaccuse: false, back: false } };
   const HOST_BTN = {
     brief: ['Начать дело', 'Откроется первая улика'],
     clue: ['К рассказам', 'Каждый расскажет о себе по очереди'],
@@ -87,9 +89,13 @@
     update(st) {
       const g = st.game;
       this.st = st; this.g = g;
-      if (!g || !g.me) return;
-      const me = g.me;
+      if (!g) return;
+      const me = g.me || (st.watching ? WATCHER : null);
+      if (!me) return;
       this.me = me;
+      this.watch = me === WATCHER;
+      this.root.classList.toggle('watching', this.watch);
+      if (this.watch && this.root.dataset.tab === 'card') this.root.dataset.tab = 'stage';
       this.idx = {}; this.byId = {}; this.conn = {};
       g.players.forEach((p, i) => { this.idx[p.id] = i; this.byId[p.id] = p; });
       st.players.forEach((p) => { this.conn[p.id] = p; });
@@ -104,7 +110,7 @@
 
       this.renderTop(st); this.renderCase(); this.renderQueue(); this.renderStage(phaseChanged || !this.stageDrawn); this.renderClues(); this.renderCard(); this.renderHost(st); this.renderOverlay(); this.renderDock(st);
       this.stageDrawn = true;
-      this.chat.update(g.feed, { gameKey: key, nameOf: (id) => (this.byId[id] ? this.byId[id].name : '?'), status: me.status === 'out' ? 'вы вне игры' : '' });
+      this.chat.update(g.feed, { gameKey: key, nameOf: (id) => (this.byId[id] ? this.byId[id].name : '?'), status: me.status === 'out' ? 'вы вне игры' : this.watch ? 'вы зритель' : '' });
       this.renderNav();
       this.tickClocks();
     },
@@ -148,11 +154,12 @@
         const cls = (n < g.round || (n === g.round && ['verdict', 'accomplice'].includes(g.phase))) ? 'done' : n === g.round && g.phase !== 'brief' ? 'now' : '';
         return `<i class="${cls} ${n === g.rounds ? 'final' : ''}" title="${n === g.rounds ? 'Финал' : `Раунд ${n}`}"></i>`;
       }).join('');
+      const eye = st.watchers ? `<span class="watch-n" title="Зрители: ${st.watchers}" aria-label="Зрители: ${st.watchers}">${icon('eye')}<b>${st.watchers}</b></span>` : '';
       const dc = st.settings && st.settings.discord ? `<a class="dc-btn" href="${esc(st.settings.discord)}" target="_blank" rel="noopener noreferrer" title="Голосовой чат партии">${icon('discord')}<span>Discord</span></a>` : '';
       setHtml(this.root.querySelector('#gTop'), `
         <div class="g-title"><p class="eyebrow">${esc(eyebrow)}${g.paused ? ' · пауза' : ''}</p><h2>${title}</h2></div>
         <div class="pips" aria-label="Раунды">${pips}</div>
-        <div class="g-right">${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.clock && g.clock.state !== 'run' ? 'Часы стоят: отсчёт запускает ведущий' : g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
+        <div class="g-right">${eye}${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.clock && g.clock.state !== 'run' ? 'Часы стоят: отсчёт запускает ведущий' : g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
     },
 
     tickClocks() {
@@ -232,6 +239,11 @@
       const wait = (txt) => `<div class="wait"><span class="dots"><i></i><i></i><i></i></span>${esc(txt)}</div>`;
       const outNote = meOut ? '<p class="muted">Вы вне игры, но можете следить за партией.</p>' : '';
 
+      if (g.phase === 'brief' && this.watch) {
+        const readyN = g.players.filter((p) => p.ready).length;
+        return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>Игроки читают свои карточки</h3><p>Дело наверху. Роли и карточки откроются, когда дело закроют.</p></div>
+          <div class="act-row"><span class="muted">Готовы: ${readyN} из ${g.players.length}</span></div>`;
+      }
       if (g.phase === 'brief') {
         const killer = me.role === 'killer';
         const readyN = g.players.filter((p) => p.ready).length;
@@ -296,7 +308,7 @@
         const readyN = g.players.filter((p) => p.status === 'active' && p.ready).length;
         const passive = !usable && me.cards.find((c) => !c.used && PASSIVE.includes(c.type));
         const cardBtn = passive ? `<span class="muted card-note">Ваша карта «${esc(passive.name)}» сработает сама, когда вас соберутся исключить.</span>` : `<button class="btn" data-a="card" ${usable && me.can.card ? '' : 'disabled'}>${me.cards.every((c) => c.used) ? 'Карты сыграны' : 'Карта действия'}</button>`;
-        const acts = !meOut ? `<div class="act-row">${cardBtn}
+        const acts = !meOut && !this.watch ? `<div class="act-row">${cardBtn}
           ${g.manual ? '<span class="muted">К обвинениям переходит ведущий.</span>' : `<button class="btn ${me.ready ? '' : 'btn-primary'}" data-a="ready">${me.ready ? 'Отменить готовность' : 'Готово к обвинениям'}</button><span class="muted">Готовы: ${readyN} из ${nAct}</span>`}</div>` : '';
         return `<div class="s-head"><p class="eyebrow">Свободное обсуждение</p><h3>${g.gang ? 'Кто здесь убийца и сообщник?' : 'Кто из нас убийца?'}</h3><p>Сверяйте алиби, ищите совпадения с уликами, спрашивайте друг друга.</p></div>${acts}${outNote}
           <div class="dossiers">${g.players.map((p) => this.dossier(p)).join('')}</div>`;
@@ -312,7 +324,7 @@
           const p = this.byId[id];
           const hits = p.tags.filter((t) => g.clues.some((c) => c.tag === t.key)).map((t) => t.label);
           return `<button class="vote-btn ${final ? 'big' : ''} ${v.my === id ? 'on' : ''}" data-a="vote" data-id="${esc(id)}">${avatar(p.name, this.idx[id])}<span><b>${esc(p.name)}</b>${hits.length ? `<small>совпало с уликой: ${esc(hits.join(', '))}</small>` : ''}</span></button>`;
-        }).join('')}</div>` : wait(meOut ? 'Голосуют те, кто ещё в игре' : 'Голоса принимаются');
+        }).join('')}</div>` : wait(meOut || this.watch ? 'Голосуют те, кто ещё в игре' : 'Голоса принимаются');
         const vp = g.players.filter((p) => p.status === 'active').map((p) => `<span title="${esc(p.name)}">${avatar(p.name, this.idx[p.id], p.voted ? 'on' : '')}</span>`).join('');
         return `<div class="s-head"><p class="eyebrow">${g.phase === 'poll' ? 'Финал · опрос' : final ? 'Финал' : `Раунд ${g.round}`}</p><h3>${title}</h3><p>${sub}</p></div>${grid}
           <div class="vp"><span>Проголосовали ${v.voted.length} из ${nAct}:</span>${vp}</div>${v.my ? `<p class="muted">Ваш голос: ${esc(this.byId[v.my].name)}.</p>` : can ? `<p class="muted">${v.candidates.includes(me.id) ? 'Не выберете, и голос уйдёт против вас.' : 'Не выберете, и голос пропадёт.'}</p>` : ''}`;
@@ -341,7 +353,7 @@
       if (g.phase === 'defense' && g.defense) {
         const d = g.defense, sp = this.byId[d.speaker], mine = d.speaker === me.id;
         return `<div class="speaker">${avatar(sp.name, this.idx[sp.id], 'lg')}<div><p class="eyebrow">Слово защиты</p><h3>${esc(sp.name)}</h3></div></div>
-          <p>${mine ? 'Объясните своё алиби и совпадения с уликами. Говорите вслух.' : 'Слушайте и запоминайте. Голосовать вы будете сразу после защиты.'}</p>
+          <p>${mine ? 'Объясните своё алиби и совпадения с уликами. Говорите вслух.' : this.watch ? 'Сразу после защиты игроки проголосуют.' : 'Слушайте и запоминайте. Голосовать вы будете сразу после защиты.'}</p>
           <div class="act-row">${d.order.map((id, i) => `<span class="badge ${i === d.idx ? 'yellow' : i < d.idx ? 'green' : ''}">${esc(this.byId[id].name)}${i < d.idx ? ' · уже выступали' : i === d.idx ? ' · говорит' : ' · следующий'}</span>`).join('')}</div>
           ${mine ? '<div class="act-row"><button class="btn btn-primary" data-a="endspeech">Речь закончена</button></div>' : ''}`;
       }
@@ -397,6 +409,11 @@
 
     /* ---------- Моя карточка ---------- */
     renderCard() {
+      if (this.watch) {
+        setHtml(this.root.querySelector('#pCard'), `<summary><h2>Вы зритель</h2></summary>
+          <div class="my-body"><p class="muted" style="font-size:13px">Вы видите то же, что все за столом. Роли, карточки и тайные ходы откроются, когда дело закроют. Сесть за стол можно будет перед следующим делом.</p></div>`);
+        return;
+      }
       const g = this.g, me = this.me, c = me.card;
       const r = ROLE[me.role];
       let hint = g.gang ? r.gang : r.hint;
@@ -456,7 +473,7 @@
           <div class="acts"><button class="btn btn-sm btn-ghost" data-a="hmode" title="${esc(modeLbl)}">${g.manual ? 'Таймеры' : 'Вручную'}</button>${this.clockButtons(g)}${['turns', 'talk', 'accuse'].includes(g.phase) ? `<button class="btn btn-sm host-back" data-a="hback" ${me.can && me.can.back ? '' : 'disabled'} title="Вернуть предыдущий шаг: слово получит тот, кого пропустили" aria-label="Назад">${icon('undo')}<span>Назад</span></button>` : ''}<button class="btn btn-primary" data-a="hnext">${esc(next)}</button></div></div>`);
         host.className = 'host-bar';
       } else {
-        const txt = g.manual ? `Ведущий ${hostP ? hostP.name : ''} листает раунды` : 'Партия идёт по таймерам';
+        const txt = (this.watch ? 'Вы зритель · ' : '') + (g.manual ? `Ведущий ${hostP ? hostP.name : ''} листает раунды` : 'Партия идёт по таймерам');
         setHtml(host, `<div><div class="who"><b>${esc(txt)}</b>${status ? `<span>${esc(status)}</span>` : ''}</div></div>`);
         host.className = 'host-bar guest';
       }
@@ -585,6 +602,11 @@
       if (a === 'hclock') return this.act('host', { do: 'clock', op: b.dataset.v });
       if (a === 'hmode') { const r = await Net.call('room:setting', { key: 'mode', value: g.manual ? 'timers' : 'host' }); if (!r.ok) fail(r); return; }
       if (a === 'leave') return Net.call('room:leave');
+      if (a === 'quit' && this.watch) {
+        const ok = await UI.confirmBox({ title: 'Перестать смотреть?', sub: 'Вернуться можно по той же ссылке или коду комнаты.', ok: 'Выйти' });
+        if (ok) Net.call('room:leave');
+        return;
+      }
       if (a === 'quit') {
         const mine = st.hostId === st.realMeId;
         const pick = await UI.choose({

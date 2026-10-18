@@ -251,6 +251,11 @@
         const playing = st.status === 'playing' && g && g.phase !== 'ended';
         const ended = g && g.phase === 'ended';
         const host = st.hostId === st.realMeId;
+        if (st.watching) {
+          put(resume, `<div class="resume-card" role="status"><div class="rc-top"><span class="rc-dot"></span><h3>Вы смотрите партию</h3></div><p>${esc(`Комната ${st.code}. ${phaseLabel(st)}`)}</p>
+            <div class="rc-acts"><button class="btn btn-primary" data-resume="back">Вернуться к партии</button><button class="btn btn-ghost" data-resume="leave">Перестать смотреть</button></div></div>`);
+          return;
+        }
         const title = playing ? 'Вы в игре' : ended ? 'Партия окончена' : `Вы в комнате ${st.code}`;
         const sub = playing ? `Комната ${st.code}. ${phaseLabel(st)} Место за вами, пока вы не выйдете сами. Сейчас ход за вас делает автопилот.`
           : ended ? `Комната ${st.code} ещё открыта. ${host ? 'Закройте её на экране итогов, иначе игроки не смогут присоединиться к другой игре.' : 'Закрывает её ведущий, но выйти и зайти в другую игру можно и самому.'}`
@@ -262,7 +267,7 @@
         const b = e.target.closest('[data-resume]'); const st = App.state;
         if (!b || !st) return;
         if (b.dataset.resume === 'back') { location.hash = `#/room/${st.code}`; return; }
-        const playing = st.status === 'playing' && st.game && st.game.phase !== 'ended';
+        const playing = st.status === 'playing' && st.game && st.game.phase !== 'ended' && !st.watching;
         const ok = playing ? await UI.confirmBox({ title: 'Выйти из партии?', sub: 'За вас дальше будет играть автопилот. Вернуться в эту партию не получится, зато можно сразу зайти в другую комнату.', ok: 'Выйти', danger: true }) : true;
         if (ok) Net.call('room:leave');
       });
@@ -293,6 +298,7 @@
         const r = await guarded('room:join', { code });
         if (!r) return;
         if (!r.ok) return fail(r);
+        if (r.watching) toast('Партия уже идёт. Вы зашли зрителем.');
         location.hash = `#/room/${r.code}`;
       };
       root.querySelector('#startForm').addEventListener('submit', (e) => {

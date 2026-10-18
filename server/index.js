@@ -115,7 +115,7 @@ function sendRoom(code) {
   const room = hub.rooms.get(code);
   if (!room) { lastPush.delete(code); return; }
   lastPush.set(code, Date.now());
-  const tokens = new Set(room.players.map((p) => p.token));
+  const tokens = new Set(room.players.map((p) => p.token).concat((room.watchers || []).map((w) => w.token)));
   for (const t of tokens) {
     if (!socketsOf.has(t)) continue;
     const r = hub.roomOf(t);

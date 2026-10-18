@@ -15,6 +15,9 @@
   // Ведущего ждём дольше: без него партия уходит на таймеры, и он теряет управление.
   const HOST_AUTOPILOT_MS = 60000;
   const HOST_PASS_MS = 120000;
+  // Зрители: сколько человек может смотреть одну партию и сколько держим того, кто пропал со связи.
+  const MAX_WATCHERS = 30;
+  const WATCHER_DROP_MS = 10 * 60 * 1000;
 
   class HubError extends Error { constructor(code, message, extra) { super(message); this.code = code; this.extra = extra || null; } }
   const fail = (code, msg, extra) => { throw new HubError(code, msg, extra); };
@@ -97,7 +100,14 @@
       const from = this.roomOf(fromToken);
       if (!from || this.roomOf(toToken)) return false;
       const p = from.players.find((x) => x.token === fromToken && !x.left);
-      if (!p) return false;
+      if (!p) {
+        const w = this._watcher(from, fromToken);
+        if (!w) return false;
+        w.token = toToken;
+        this.tokens.delete(fromToken); this.tokens.set(toToken, from.code);
+        this.notify(from);
+        return true;
+      }
       p.token = toToken;
       const ident = this.identities.get(toToken);
       if (ident) {
@@ -138,7 +148,18 @@
     _log(room, text) { room.log.push({ t: this.now(), text }); if (room.log.length > 30) room.log.shift(); }
     _touch(room) { room.lastActive = this.now(); }
     notify(room) { this.onChange(room.code); }
-    roomTokens(code) { const r = this.rooms.get(code); return r ? r.players.filter((p) => !p.isBot && !p.left).map((p) => p.token) : []; }
+    roomTokens(code) { const r = this.rooms.get(code); return r ? r.players.filter((p) => !p.isBot && !p.left).map((p) => p.token).concat(this._watchers(r).map((w) => w.token)) : []; }
+    /* Зрители: пришли по ссылке или коду, когда партия уже шла. Видят то же, что любой игрок на общем экране, но не играют. */
+    _watchers(room) { return room.watchers || (room.watchers = []); }
+    _watcher(room, token) { return this._watchers(room).find((w) => w.token === token) || null; }
+    _dropWatcher(room, token) {
+      const list = this._watchers(room), i = list.findIndex((w) => w.token === token);
+      if (i < 0) return false;
+      list.splice(i, 1);
+      if (this.tokens.get(token) === room.code) this.tokens.delete(token);
+      return true;
+    }
+    _forgetRoom(room) { this._watchers(room).forEach((w) => { if (this.tokens.get(w.token) === room.code) this.tokens.delete(w.token); }); }
 
     _addPlayer(room, token, name, isBot = false) {
       const taken = new Set(room.players.filter((p) => !p.left).map((p) => p.seat));
@@ -173,6 +194,7 @@
     /** Игрок сидит в комнате и пытается открыть или занять другую: просим сначала решить, остаться или уйти. */
     _guardOther(token, code, leave) {
       const cur = this.roomOf(token);
+      if (cur && this._watcher(cur, token) && cur.code !== code) { this._dropWatcher(cur, token); this.notify(cur); return; }
       if (!cur || !cur.players.some((x) => x.token === token && !x.left)) return;
       if (code && cur.code === code) return;
       if (!leave) {
@@ -201,10 +223,35 @@
       const room = this._room(code);
       const had = room.players.find((x) => x.token === token && !x.left);
       if (had) { had.connected = true; if (name && !this.guestNames) had.name = this._cleanName(name); this.tokens.set(token, room.code); this.notify(room); return { code: room.code }; }
-      if (room.status !== 'lobby') fail('in_progress', 'Партия уже идёт. Дождитесь следующего дела.');
+      if (room.status !== 'lobby') {
+        // Партия уже идёт: заходим зрителем. Свободное место можно будет занять, когда дело закроют.
+        const w = this._watcher(room, token);
+        if (w) { w.connected = true; this.tokens.set(token, room.code); this.notify(room); return { code: room.code, watching: true }; }
+        this._guardOther(token, room.code, leave);
+        if (this._watchers(room).length >= MAX_WATCHERS) fail('watch_full', 'За этой партией уже следит слишком много зрителей.');
+        this._watchers(room).push({ token, name: typeof name === 'string' ? name : '', joinedAt: this.now(), connected: true, offlineSince: 0 });
+        this.tokens.set(token, room.code);
+        this.notify(room);
+        return { code: room.code, watching: true };
+      }
       this._guardOther(token, room.code, leave);
+      this._dropWatcher(room, token);
       const pl = this._addPlayer(room, token, this._seatName(room, token, name));
       this._log(room, `${pl.name} входит в комнату.`);
+      this._touch(room); this.notify(room);
+      return { code: room.code };
+    }
+
+    /** Зритель садится за стол: в лобби или когда дело закрыто. Сыграет со следующего дела. */
+    ev_room_seat(token, { name }) {
+      const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
+      if (!this._watcher(room, token)) fail('not_watcher', 'Вы уже за столом.');
+      if (room.status !== 'lobby' && !(room.game && room.game.phase === 'ended')) fail('in_progress', 'Сесть за стол можно, когда дело закроют.');
+      const w = this._watcher(room, token);
+      const pl = this._addPlayer(room, token, this._seatName(room, token, name || w.name));
+      this._dropWatcher(room, token);
+      this.tokens.set(token, room.code);
+      this._log(room, `${pl.name} садится за стол.`);
       this._touch(room); this.notify(room);
       return { code: room.code };
     }
@@ -212,6 +259,7 @@
     _leave(token) {
       const room = this.roomOf(token);
       if (!room) return;
+      if (this._dropWatcher(room, token)) { this.notify(room); return; }
       const p = room.players.find((x) => x.token === token && !x.left);
       this.tokens.delete(token);
       this.actAs.delete(token);
@@ -224,7 +272,7 @@
         room.players.splice(room.players.indexOf(p), 1);
         this._log(room, `${p.name} покидает комнату.`);
       }
-      if (!room.players.some((x) => !x.isBot && !x.left)) { this.rooms.delete(room.code); return; }
+      if (!room.players.some((x) => !x.isBot && !x.left)) { this._closeRoom(room); return; }
       if (room.hostId === p.id) this._passHost(room);
       this.notify(room);
     }
@@ -236,8 +284,10 @@
       this._closeRoom(room, token);
     }
     _closeRoom(room, by = null) {
-      const tokens = room.players.filter((p) => !p.isBot && !p.left).map((p) => p.token);
-      room.players.forEach((p) => { if (!p.isBot) { this.tokens.delete(p.token); this.actAs.delete(p.token); } });
+      const tokens = room.players.filter((p) => !p.isBot && !p.left).map((p) => p.token).concat(this._watchers(room).map((w) => w.token));
+      // Ушедший мог уже сесть в другую комнату: снимаем только привязки к этой.
+      room.players.forEach((p) => { if (!p.isBot && this.tokens.get(p.token) === room.code) { this.tokens.delete(p.token); this.actAs.delete(p.token); } });
+      this._forgetRoom(room);
       this.rooms.delete(room.code);
       this.onChange(room.code, { closed: true, tokens, by });
     }
@@ -432,6 +482,11 @@
       room.players = room.players.filter((p) => !p.left);
       room.players.forEach((p) => { p.ready = p.isBot; });
       room.status = 'lobby'; room.game = null;
+      // Зрители, которым хватает мест, садятся за стол: они пришли в эту комнату играть.
+      this._watchers(room).slice().forEach((w) => {
+        if (room.players.filter((p) => !p.left).length >= MAX_PLAYERS) return;
+        try { this._addPlayer(room, w.token, this._seatName(room, w.token, w.name)).connected = w.connected; this._dropWatcher(room, w.token); this.tokens.set(w.token, room.code); } catch (e) { /* останется зрителем */ }
+      });
       this._log(room, 'Лобби снова открыто.');
       this.notify(room);
     }
@@ -509,12 +564,12 @@
           if (Engine.tick(g, now)) { this._touch(room); this.notify(room); }
           if (g.phase === 'ended' && !room.statsDone) { room.statsDone = true; this._recordGame(room); this.notify(room); }
         }
+        this._watchers(room).slice().forEach((w) => { if (!w.connected && w.offlineSince && now - w.offlineSince > WATCHER_DROP_MS) this._dropWatcher(room, w.token); });
         const humans = room.players.filter((p) => !p.isBot && !p.left);
         // Пустое лобби живёт 15 минут, законченная партия 30 минут, идущая 6 часов.
         const idle = !room.game ? 15 * 60 * 1000 : room.game.phase === 'ended' ? 30 * 60 * 1000 : 6 * 3600 * 1000;
         if (now - room.lastActive > idle && humans.every((p) => !p.connected)) {
-          humans.forEach((p) => this.tokens.delete(p.token));
-          this.rooms.delete(room.code);
+          this._closeRoom(room);
         }
       }
     }
@@ -522,7 +577,13 @@
     setConnected(token, connected) {
       const room = this.roomOf(token); if (!room) return null;
       const p = room.players.find((x) => x.token === token && !x.left);
-      if (!p) return null;
+      if (!p) {
+        const w = this._watcher(room, token);
+        if (!w || w.connected === connected) return w ? room : null;
+        w.connected = connected; w.offlineSince = connected ? 0 : this.now();
+        this.notify(room);
+        return room;
+      }
       if (p.connected === connected) return room;
       p.connected = connected;
       if (!connected) p.offlineSince = this.now();
@@ -582,8 +643,10 @@
     view(token) {
       const room = this.roomOf(token);
       if (!room) return null;
-      const me = room.players.find((x) => x.token === token && !x.left);
-      if (!me) return null;
+      const seated = room.players.find((x) => x.token === token && !x.left);
+      const watching = !seated && !!this._watcher(room, token);
+      if (!seated && !watching) return null;
+      const me = seated || { id: null };
       const admin = this.isAdmin(token);
       const as = this.actAs.get(token);
       const meId = as && room.test && admin && room.game && room.game.players[as] ? as : me.id;
@@ -591,12 +654,13 @@
       return {
         serverNow: this.now(), code: room.code, status: room.status, hostId: room.hostId, caseChoice: room.caseChoice, pack: room.pack || 'main', settings: Object.assign({}, room.settings),
         test: room.test, isAdmin: admin, meId, realMeId: me.id, speed: room.settings.speed,
+        watching, watchers: this._watchers(room).filter((w) => w.connected).length, seatsLeft: Math.max(0, MAX_PLAYERS - room.players.filter((p) => !p.left).length),
         players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, photo: this.photoOf(p), ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
         rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
         packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
         // Список дел нужен ведущему для выбора: в лобби и на вводной. В партии он только раздувал каждое обновление.
-        cases: room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.enabledCases().map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
+        cases: watching ? [] : room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.enabledCases().map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
         playedCases: (room.playedCases || []).slice(),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,
@@ -646,6 +710,7 @@
         caseTitle: r.game ? r.game.caseData.title : null, phase: r.game ? r.game.phase : null, round: r.game ? r.game.round : 0,
         paused: r.game ? r.game.paused : false, speed: r.settings.speed, mode: r.settings.mode,
         players: r.players.filter((p) => !p.left).sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, ready: p.ready, connected: p.connected, host: p.id === r.hostId })),
+        watchers: (r.watchers || []).filter((w) => w.connected).length,
       })).sort((a, b) => b.createdAt - a.createdAt);
     }
     ev_admin_rooms(token) { this._admin(token); return { rooms: this.adminRooms() }; }

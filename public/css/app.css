@@ -316,6 +316,8 @@ select.input option { background: var(--panel); }
 .dc-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-decoration: none; font: 600 12px/1 var(--f-ui); letter-spacing: .06em; text-transform: uppercase; transition: border-color .2s, transform .2s var(--ease); }
 .dc-btn:hover { border-color: var(--amber); transform: translateY(-1px); }
 .dc-btn svg { width: 16px; height: 16px; color: var(--amber); }
+.watch-n { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font: 500 13px/1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.watch-n svg { width: 17px; height: 17px; color: var(--amber); }
 
 .g-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 4px clamp(12px, 2vw, 28px) 96px; align-items: start; }
 .g-stage { min-width: 0; display: grid; gap: 14px; }
@@ -675,6 +677,9 @@ input[type="range"] { width: 100%; accent-color: var(--amber); }
   .g-nav { display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; background: rgba(18, 12, 9, .98); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .g-nav button { position: relative; padding: 14px 4px; border: 0; background: none; cursor: pointer; font: 600 12px/1 var(--f-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
   .g-nav button.on { color: var(--amber); box-shadow: 0 3px 0 var(--amber) inset; }
+  .game.watching .g-nav { grid-template-columns: repeat(2, 1fr); }
+  .game.watching .g-nav [data-tab="card"] { display: none; }
+  .watch-n { padding: 9px; }
   .g-nav .dot { position: absolute; top: 9px; right: calc(50% - 40px); width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
   .host-bar { bottom: calc(46px + env(safe-area-inset-bottom, 0px)); padding: 8px 10px; }
   .host-bar > div { padding: 8px 10px; }

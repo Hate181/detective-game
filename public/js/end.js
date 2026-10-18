@@ -29,6 +29,7 @@
         if (a === 'tab') { this.tab = b.dataset.tab; this.render(); if (this.tab === 'season') this.loadSeason(); }
         else if (a === 'next') { const r = await Net.call('room:next'); if (!r.ok) fail(r); }
         else if (a === 'leave') Net.call('room:leave');
+        else if (a === 'seat') { b.disabled = true; const r = await Net.call('room:seat'); b.disabled = false; if (!r.ok) fail(r); else UI.toast('Вы за столом. Карточку получите в следующем деле.'); }
         else if (a === 'share') { b.disabled = true; try { await ShareCard.open(this.g.results, this.g); } finally { b.disabled = false; } }
         else if (a === 'close') {
           const ok = await UI.confirmBox({ title: 'Закрыть комнату?', sub: 'Все игроки освободятся и смогут зайти в другую игру. Итоги этого дела останутся в сезонной таблице.', ok: 'Закрыть комнату', danger: true });
@@ -56,8 +57,9 @@
       photoAt = {}; g.players.forEach((p, i) => { if (photo[p.id]) photoAt[i] = photo[p.id]; });
       this.byId = byId; this.idx = idx;
       const nm = (id) => (byId[id] ? byId[id].name : '?');
+      // Зритель и тот, кто сел за стол после конца дела, в этой партии не играли: своего результата у них нет.
       const me = g.me;
-      const myRank = R.rank.indexOf(me.id) + 1;
+      const myRank = me ? R.rank.indexOf(me.id) + 1 : 0;
 
       const win = R.winner === 'innocent';
       const keptOut = new Set((R.kicks || []).map((k) => k.id));
@@ -75,7 +77,7 @@
           <div>${avatar(nm(R.killerId), idx[R.killerId])}<span><span class="label">Убийца</span><br><b>${esc(nm(R.killerId))}</b></span></div>
           ${R.accompliceId ? `<div>${avatar(nm(R.accompliceId), idx[R.accompliceId])}<span><span class="label">Сообщник</span><br><b>${esc(nm(R.accompliceId))}</b></span></div>` : ''}
           <div><span class="label">Место и время</span><br><b>${esc(R.scene)}, ${esc(R.murderTime)}</b></div>
-          <div><span class="label">Ваш результат</span><br><b>${R.score[me.id]} очк. · ${myRank} место из ${g.players.length}</b></div>
+          ${me ? `<div><span class="label">Ваш результат</span><br><b>${R.score[me.id]} очк. · ${myRank} место из ${g.players.length}</b></div>` : ''}
         </div>
         <div class="e-share"><button class="btn" data-a="share">Картинка с итогами для чата</button></div>`);
 
@@ -93,7 +95,14 @@
       }
 
       const host = st.hostId === st.realMeId;
-      setHtml(this.root.querySelector('#eActs'), host
+      const seatBtn = st.seatsLeft > 0 ? '<button class="btn btn-primary" data-a="seat">Сесть за стол</button>' : '';
+      setHtml(this.root.querySelector('#eActs'), st.watching
+        ? `${seatBtn}<button class="btn" data-a="leave">Перестать смотреть</button>
+           <div class="end-close" style="flex-basis:100%"><p>${st.seatsLeft > 0 ? 'Сядете за стол, и в следующем деле получите свою карточку. Его откроет ведущий.' : 'Все десять мест заняты. Можно смотреть и следующее дело.'}</p></div>`
+        : !me && !host
+        ? `<button class="btn" data-a="leave">Выйти из комнаты</button>
+           <div class="end-close" style="flex-basis:100%"><p><b>Вы за столом.</b> Карточку получите, когда ведущий откроет следующее дело.</p></div>`
+        : host
         ? `<button class="btn btn-primary" data-a="next">Следующее дело</button><button class="btn btn-red" data-a="close">Закрыть комнату</button>
            <div class="end-close" style="flex-basis:100%"><p><b>Когда доиграли, закройте комнату.</b> Пока она открыта, ни один из игроков не сможет присоединиться к другой игре. Хотите ещё партию, откройте следующее дело.</p></div>`
         : `<button class="btn" data-a="leave">Выйти из комнаты</button>
