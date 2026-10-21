@@ -2,7 +2,7 @@
    Гость видит своё имя «Гость-12345» и кнопки входа. */
 (function () {
   const { esc, toast } = UI;
-  const ROLE = { innocent: 'Невиновный', killer: 'Убийца', accomplice: 'Сообщник' };
+  const ROLE = { innocent: 'Невиновный', killer: 'Убийца', accomplice: 'Сообщник', detective: 'Следователь', mole: 'Крот' };
   const PROV = { discord: 'Discord', google: 'Google', email: 'почту', dev: 'тестовый вход' };
 
   const day = (t) => { try { return new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); } catch (e) { return ''; } };
@@ -55,7 +55,7 @@
         <div><b>${c.points}</b><span>очков</span></div>
         <div><b>${c.medals}</b><span>медалей</span></div>
       </section>
-      <p class="pf-roles">Невиновным ${games(c.innocent || 0)}, убийцей ${games(c.killer || 0)}, сообщником ${games(c.accomplice || 0)}.${s && s.rank ? ` В сезоне <span class="nowrap">${esc(s.key)}</span> вы на ${s.rank} месте из ${s.total}.` : ''}</p>
+      <p class="pf-roles">Невиновным ${games(c.innocent || 0)}, убийцей ${games(c.killer || 0)}, сообщником ${games(c.accomplice || 0)}${c.detective || c.mole ? `, следователем ${games(c.detective || 0)}, кротом ${games(c.mole || 0)}` : ''}.${s && s.rank ? ` В сезоне <span class="nowrap">${esc(s.key)}</span> вы на ${s.rank} месте из ${s.total}.` : ''}</p>
 
       <section><h2>Последние партии</h2>${hist}</section>
 

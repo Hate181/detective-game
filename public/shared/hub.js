@@ -6,6 +6,10 @@
 })(typeof self !== 'undefined' ? self : this, function (Content, Cases, Engine, RngLib) {
   const { randomSeed } = RngLib;
   const MIN_PLAYERS = 6, MAX_PLAYERS = 10, TEST_MIN = 4;
+  // Малый состав: 2–5 человек, подозреваемые персонажи дела.
+  const SMALL_MIN = 2, SMALL_MAX = 5;
+  const isSmall = (room) => room.settings.table === 'small';
+  const minOf = (room) => (isSmall(room) ? SMALL_MIN : room.test ? TEST_MIN : MIN_PLAYERS);
   const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const CODE_LENGTH = 5;
   const NAME_MAX = 18;
@@ -208,7 +212,7 @@
       this._guardOther(token, null, leave);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 60, speed: 1, mode: 'host', hints: 'normal', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
+        settings: { discuss: 90, turn: 60, speed: 1, mode: 'host', hints: 'normal', table: 'full', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
       let host;
@@ -346,6 +350,11 @@
         if (!['host', 'timers'].includes(value)) fail('bad_setting', 'Недопустимая настройка.');
         room.settings.mode = value;
         if (room.game) room.game.settings.mode = value;
+      } else if (key === 'table') {
+        // Сколько вас: «2–5» (подозреваемые персонажи дела, один из вас крот) или «6 и более» (обычная партия).
+        if (room.status !== 'lobby') fail('in_progress', 'Состав меняют до начала партии.');
+        if (!['small', 'full'].includes(value)) fail('bad_setting', 'Недопустимая настройка.');
+        room.settings.table = value;
       } else if (key === 'hints') {
         // Обычный режим: связь игроков с уликами в интерфейсе не подсвечивается. Лайт: подсвечивается.
         if (room.status !== 'lobby') fail('in_progress', 'Режим меняют до начала партии.');
@@ -390,8 +399,9 @@
 
     canStart(room) {
       const n = room.players.filter((p) => !p.left).length;
-      const min = room.test ? TEST_MIN : MIN_PLAYERS;
+      const min = minOf(room);
       if (n < min) { const d = min - n; return { ok: false, reason: `Нужно ещё ${d} ${Content.trans(d, 'детектив', 'детектива', 'детективов')}` }; }
+      if (isSmall(room) && n > SMALL_MAX) return { ok: false, reason: `Вас ${n}. Переключите состав на «6 и более» или оставьте до пяти человек.` };
       const not = room.players.filter((p) => !p.left && p.id !== room.hostId && !p.ready).length;
       if (not) return { ok: false, reason: `Не готовы: ${not}` };
       return { ok: true, reason: '' };
@@ -442,8 +452,8 @@
 
     _startGame(room, opts = {}) {
       const members = room.players.filter((p) => !p.left);
-      if (members.length < (room.test ? TEST_MIN : MIN_PLAYERS) && !opts.force) fail('cannot_start', 'Не хватает игроков.');
-      if (members.length < TEST_MIN) fail('cannot_start', `Нужно минимум ${TEST_MIN} человека.`);
+      if (members.length < minOf(room) && !opts.force) fail('cannot_start', 'Не хватает игроков.');
+      if (isSmall(room) ? members.length < SMALL_MIN || members.length > SMALL_MAX : members.length < TEST_MIN) fail('cannot_start', isSmall(room) ? `В малом составе играют от ${SMALL_MIN} до ${SMALL_MAX} человек.` : `Нужно минимум ${TEST_MIN} человека.`);
       const { c, random } = opts.caseData ? { c: opts.caseData, random: false } : this._pickCase(room);
       // Выбор конкретного дела действует на одну партию: «Следующее дело» снова берёт случайное.
       room.caseChoice = 'random';
@@ -459,8 +469,8 @@
       room.game = Engine.createGame({
         caseData: c, seed, now: this.now(),
         players: members.map((p) => ({ id: p.id, name: p.name, bot: p.isBot })),
-        settings: { discuss: room.settings.discuss, speed: room.settings.speed, mode: room.settings.mode, hints: room.settings.hints === 'light' ? 'light' : 'normal', durations: { turn: room.settings.turn } },
-        hostId: room.hostId, history: { killerCounts: room.killerCounts }, forceKiller, forceAccomplice,
+        settings: { discuss: room.settings.discuss, speed: room.settings.speed, mode: room.settings.mode, hints: room.settings.hints === 'light' ? 'light' : 'normal', table: isSmall(room) ? 'small' : 'full', durations: { turn: room.settings.turn } },
+        hostId: room.hostId, history: { killerCounts: room.killerCounts }, forceKiller, forceAccomplice, forceMole: room.test && room.testRole === 'mole' && host ? host.id : null,
       });
       room.gameMeta = { caseData: c, seed };
       room.game.wasRandom = random;
@@ -614,20 +624,20 @@
         const e = s.players[key] = s.players[key] || { name: lp.name, games: 0, killer: 0, caught: 0, innocentGames: 0, solved: 0, points: 0, medals: 0 };
         e.name = lp.name; e.games += 1;
         if (gp.role === 'killer') { e.killer += 1; if (r.winner === 'innocent') e.caught += 1; }
-        if (gp.role === 'innocent') { e.innocentGames += 1; if (r.winner === 'innocent') e.solved += 1; }
+        if (gp.role === 'innocent' || gp.role === 'detective') { e.innocentGames += 1; if (r.winner === 'innocent') e.solved += 1; }
         e.points += r.score[lp.id] || 0;
         e.medals += r.awards.filter((a) => a.playerId === lp.id).length;
         if (lp.account) {
           const c = s.career[lp.account] = s.career[lp.account] || { games: 0, wins: 0, killer: 0, accomplice: 0, innocent: 0, points: 0, medals: 0, history: [] };
-          const won = (gp.role === 'innocent' ? 'innocent' : 'killer') === r.winner;
+          const won = (['innocent', 'detective'].includes(gp.role) ? 'innocent' : 'killer') === r.winner;
           const medals = r.awards.filter((a) => a.playerId === lp.id).map((a) => a.title);
           c.games += 1; c.wins += won ? 1 : 0; c[gp.role] = (c[gp.role] || 0) + 1;
           c.points += r.score[lp.id] || 0; c.medals += medals.length;
-          c.history.unshift({ t: this.now(), case: g.caseData.title, role: gp.role, won, points: r.score[lp.id] || 0, medals, players: g.order.length });
+          c.history.unshift({ t: this.now(), case: g.caseData.title, role: gp.role, won, points: r.score[lp.id] || 0, medals, players: (g.small ? g.team : g.order).length });
           c.history.length = Math.min(c.history.length, 20);
         }
       });
-      room.killerCounts[g.killerId] = (room.killerCounts[g.killerId] || 0) + 1;
+      if (!g.small) room.killerCounts[g.killerId] = (room.killerCounts[g.killerId] || 0) + 1;
       this.store.saveStats(s);
     }
     statsView() {
@@ -656,7 +666,7 @@
         test: room.test, isAdmin: admin, meId, realMeId: me.id, speed: room.settings.speed,
         watching, watchers: this._watchers(room).filter((w) => w.connected).length, seatsLeft: Math.max(0, MAX_PLAYERS - room.players.filter((p) => !p.left).length),
         players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, photo: this.photoOf(p), ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
-        rules: { min: room.test ? TEST_MIN : MIN_PLAYERS, max: MAX_PLAYERS, accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
+        rules: { min: minOf(room), max: isSmall(room) ? SMALL_MAX : MAX_PLAYERS, small: isSmall(room), accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
         packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
         // Список дел нужен ведущему для выбора: в лобби и на вводной. В партии он только раздувал каждое обновление.

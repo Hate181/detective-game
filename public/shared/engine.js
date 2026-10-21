@@ -16,9 +16,11 @@
   const { TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS, CARDS, DURATIONS } = Content;
 
   const ROUNDS = 4;
+  // Малый состав: подозреваемых шесть персонажей дела, задержать можно не больше трёх, поэтому раундов три.
+  const SMALL_ROUNDS = 3, NPC_COUNT = 6;
   const PH = {
     BRIEF: 'brief', CLUE: 'clue', TURNS: 'turns', TALK: 'talk', ACCUSE: 'accuse', VOTE: 'vote', RESULT: 'result',
-    POLL: 'poll', DEFENSE: 'defense', FINAL: 'final', VERDICT: 'verdict', ACCOMPLICE: 'accomplice', ENDED: 'ended',
+    POLL: 'poll', DEFENSE: 'defense', FINAL: 'final', VERDICT: 'verdict', ACCOMPLICE: 'accomplice', MOLE: 'mole', ENDED: 'ended',
   };
   const VOTE_PHASES = [PH.VOTE, PH.POLL, PH.FINAL];
 
@@ -30,6 +32,7 @@
   /* ---------- Создание партии ---------- */
 
   function createGame(opts) {
+    if (opts.settings && opts.settings.table === 'small') return createSmallGame(opts);
     const { caseData, players, settings = {}, seed = (Date.now() & 0x7fffffff), now = Date.now(), history = {}, forceKiller = null, forceAccomplice = null, hostId = null } = opts;
     const rng = new Rng(seed);
     const ids = players.map((p) => p.id);
@@ -80,13 +83,88 @@
     return game;
   }
 
+  /* Малый состав: за столом 2–5 человек, а подозреваемые шесть персонажей дела с обычными карточками.
+     Персонажи стоят в game.order (это «стол»: улики, голосование, досье), люди в game.team.
+     Люди открывают строки персонажей, играют карты, обвиняют и голосуют. При трёх и больше один из них тайно крот:
+     он знает убийцу и сообщника и играет за них. Следствие проигрывает, если задержало двоих невиновных. */
+  function createSmallGame(opts) {
+    const { caseData, players, settings = {}, seed = (Date.now() & 0x7fffffff), now = Date.now(), hostId = null, forceMole = null } = opts;
+    const rng = new Rng(seed);
+    const team = players.map((p) => p.id);
+    if (team.length < 2) bad('Для партии нужно минимум 2 человека.');
+    if (team.length > 5) bad('В малом составе играют до пяти человек.');
+    const pool = rng.shuffle(Content.NPC_NAMES[Number(caseData.year) >= 1990 ? 'modern' : 'classic'].slice());
+    const npcs = Array.from({ length: NPC_COUNT }, (_, i) => ({ id: `npc${i + 1}`, name: pool[i] }));
+    const ids = npcs.map((c) => c.id);
+    const killerId = rng.pick(ids);
+    const accompliceId = rng.pick(ids.filter((id) => id !== killerId));
+    const rules = Object.assign({ oneOfTwo: true, gang: true, labTo: 'innocent', labCount: 1 }, settings.rules);
+    const gen = Generator.generate({ caseData, ids, killerId, accompliceId, gang: true, rng });
+    const moleId = team.length >= 3 ? (forceMole && team.includes(forceMole) ? forceMole : rng.pick(team)) : null;
+
+    const game = {
+      seed, caseData: JSON.parse(JSON.stringify(Object.assign({}, caseData, { professions: undefined }))),
+      settings: { mode: 'host', discuss: 90, speed: 1, durations: {}, ...settings, rules },
+      small: true, team: team.slice(), moleId, moleVote: null, moleResult: null,
+      hostId: hostId && team.includes(hostId) ? hostId : team[0],
+      createdAt: now, startedAt: now, endedAt: null,
+      rng, killerId, accompliceId, gang: true, finalLeft: 0, scene: gen.scene,
+      phase: PH.BRIEF, phaseStartedAt: now, phaseEndsAt: 0, autoAt: null, paused: false, pausedAt: 0, wasManual: null,
+      round: 0, order: ids.slice(), players: {},
+      clues: gen.clues.map((c) => Object.assign({ revealedRound: null }, c)),
+      overlay: null, feed: [], feedSeq: 0, step: 0, undo: [], kicks: [], suspicions: [], plants: [], votesLog: [],
+      turn: null, vote: null, poll: null, defense: null, verdict: null, results: null, decisive: null,
+      botDue: {}, botMem: {},
+    };
+    game.settings.durations = Object.assign({}, game.settings.durations);
+    game.settings.durations.talk = game.settings.discuss;
+
+    npcs.forEach((c) => {
+      const role = c.id === killerId ? 'killer' : c.id === accompliceId ? 'accomplice' : 'innocent';
+      game.players[c.id] = {
+        id: c.id, name: c.name, npc: true, bot: false, auto: false, role, card: gen.cards[c.id], cards: [],
+        revealed: {}, secretRevealed: false, status: 'active', notes: [], ready: true, alibiChosen: true, left: false,
+      };
+    });
+    // Убийца-персонаж называет чужое место сам, как это сделал бы бот.
+    const k = game.players[killerId];
+    const locs = game.caseData.locations.filter((l) => l !== game.scene);
+    const free = locs.filter((l) => !ids.some((id) => id !== killerId && game.players[id].card.alibi.real.loc === l));
+    chooseAlibi(game, k, rng.pick(free.length ? free : locs));
+    // «Ложный след» с самого начала лежит на одном из преступников.
+    if (rules.trail !== false) game.players[rng.pick([killerId, accompliceId])].cards.push({ type: 'trail', used: false, got: 0 });
+
+    // Карты людей: по две. У крота всегда «Подмена улики».
+    const deck = rng.shuffle(['warrant', 'warrant', 'testimony', 'testimony', 'confront', 'confront', 'warrant', 'testimony', 'confront', 'warrant']);
+    let di = 0;
+    players.forEach((p) => {
+      const mole = p.id === moleId;
+      const hand = mole ? ['swap', deck[di++ % deck.length]] : [deck[di++ % deck.length], deck[di++ % deck.length]];
+      game.players[p.id] = {
+        id: p.id, name: p.name, bot: !!p.bot, auto: !!p.bot, role: mole ? 'mole' : 'detective', card: null,
+        cards: hand.map((type) => ({ type, used: false })),
+        revealed: {}, secretRevealed: false, status: 'active', notes: [], ready: false, alibiChosen: true, left: false,
+      };
+    });
+    // Вдвоём крота нет, зато одну улику дело подменяет само: «Экспертиза» не остаётся без работы.
+    if (!moleId) game.autoSwapRound = 2 + rng.int(2);
+    startClock(game, now, dur(game, 'brief'));
+    pushFeed(game, now, { kind: 'system', text: `Дело открыто: ${game.caseData.title}. Жертва: ${game.caseData.victim}. Время смерти ${game.caseData.time}.` });
+    pushFeed(game, now, { kind: 'system', text: `Подозреваемых шестеро. Среди них убийца и сообщник. Задержите обоих, пока за решёткой не оказались двое невиновных.` });
+    return game;
+  }
+
   /* ---------- Утилиты ---------- */
 
   const P = (game, id) => game.players[id];
   const nm = (game, id) => (game.players[id] ? game.players[id].name : '?');
   const active = (game) => game.order.map((id) => game.players[id]).filter((p) => p.status === 'active');
+  /** Кто ходит, говорит и голосует: обычно все за столом, в малом составе только люди. */
+  const actors = (game) => (game.small ? game.team : game.order).map((id) => game.players[id]);
+  const voters = (game) => actors(game).filter((p) => p.status === 'active');
+  const roundsOf = (game) => (game.small ? SMALL_ROUNDS : ROUNDS);
   const unusedCard = (p, type) => p.cards.findIndex((c) => !c.used && (!type || c.type === type));
-  const isFinale = (game) => game.round >= ROUNDS;
+  const isFinale = (game) => !game.small && game.round >= ROUNDS;
 
   /** Ведущий листает фазы сам, пока он на связи. Если пропал, партия идёт по таймерам. */
   /** Обычный режим: роль выбывшего и число преступников на свободе скрыты до конца дела. В лайте всё видно. */
@@ -132,7 +210,7 @@
 
   function secretText(game, p) {
     const s = p.card.secret;
-    if (s.kind === 'meet') return `«${s.loc}»: тайная встреча с игроком ${nm(game, s.partnerId)}`;
+    if (s.kind === 'meet') return p.npc ? `«${s.loc}»: тайная встреча, там же ${nm(game, s.partnerId)}` : `«${s.loc}»: тайная встреча с игроком ${nm(game, s.partnerId)}`;
     if (s.kind === 'loc') return `«${s.loc}»: ${s.text}`;
     return s.text;
   }
@@ -182,14 +260,15 @@
     // Эффектные паузы идут сами, даже когда ведущий листает вручную.
     game.autoAt = phase === PH.VERDICT ? now + dur(game, durKey) : null;
     game.overlay = null;
-    game.order.forEach((id) => { game.players[id].ready = false; });
+    Object.values(game.players).forEach((p) => { p.ready = false; });
   }
 
   function startRound(game, now) {
     game.round += 1;
     // Подменённая улика приходит по расписанию, как настоящая: по номеру и раунду её не отличить.
+    if (game.small && game.autoSwapRound === game.round) autoSwap(game);
     const fresh = game.clues.filter((c) => c.revealedRound === null);
-    const take = isFinale(game) ? fresh : fresh.slice(0, 1);
+    const take = isFinale(game) || (game.small && game.round >= SMALL_ROUNDS) ? fresh : fresh.slice(0, game.small && game.round === 1 ? 2 : 1);
     take.forEach((c) => {
       c.revealedRound = game.round;
       pushFeed(game, now, { kind: 'clue', clueId: c.id, text: `Раунд ${game.round}. Найдена улика: ${c.text}` });
@@ -199,7 +278,7 @@
   }
 
   function startTurns(game, now) {
-    const act = active(game).map((p) => p.id);
+    const act = voters(game).map((p) => p.id);
     const start = (game.round - 1) % act.length;
     const queue = act.slice(start).concat(act.slice(0, start));
     game.turn = { queue, idx: -1, speakerId: null, revealed: false, round: game.round };
@@ -218,7 +297,7 @@
     game.overlay = null;
     t.speakerId = t.queue[t.idx];
     t.revealed = false;
-    pushFeed(game, now, { kind: 'turn', who: t.speakerId, text: `Слово: ${nm(game, t.speakerId)}.` });
+    pushFeed(game, now, { kind: 'turn', who: t.speakerId, text: game.small ? `Показания открывает ${nm(game, t.speakerId)}.` : `Слово: ${nm(game, t.speakerId)}.` });
   }
 
   /** Профессию и особенность сами открывают только одну из двух: вторая всплывёт только от «Обыска» или «Показаний».
@@ -229,6 +308,17 @@
   }
   const volunteerable = (game, p) => [...SAFE_TRAITS, 'secret'].filter((t) => !p.revealed[t] && !lockedTrait(game, p, t));
 
+  /** Малый состав: какие строки каких персонажей можно открыть в свой ход. */
+  function npcReveals(game) {
+    return active(game).map((c) => ({ id: c.id, traits: SAFE_TRAITS.filter((t) => !c.revealed[t] && !lockedTrait(game, c, t)) })).filter((o) => o.traits.length);
+  }
+  function npcReveal(game, now, by, c, trait, how) {
+    c.revealed[trait] = true;
+    game.turn.revealed = true;
+    const v = traitValue(game, c, trait);
+    pushFeed(game, now, { kind: 'reveal', who: c.id, by: by.id, trait, text: `${by.name} открывает строку «${TRAITS[trait]}» у ${c.name}: ${v.text}`, how });
+  }
+
   function randomSafeTrait(game, p) {
     const left = SAFE_TRAITS.filter((t) => !p.revealed[t] && !lockedTrait(game, p, t));
     return left.length ? game.rng.pick(left) : null;
@@ -237,7 +327,11 @@
   function endTurn(game, now) {
     const t = game.turn;
     const p = P(game, t.speakerId);
-    if (p && !t.revealed) {
+    if (p && !t.revealed && game.small) {
+      // Не успел выбрать: строку случайного персонажа открывает само дело.
+      const opts = npcReveals(game);
+      if (opts.length) { const o = game.rng.pick(opts); npcReveal(game, now, p, P(game, o.id), game.rng.pick(o.traits), 'auto'); }
+    } else if (p && !t.revealed) {
       const tr = randomSafeTrait(game, p);
       if (tr) publicReveal(game, now, p, tr, 'auto');
     }
@@ -252,9 +346,9 @@
   /* Обвинительная минута: после обсуждения в том же порядке, что и рассказы, каждый по минуте говорит,
      кого подозревает и почему. С живым ведущим дальше листает только он, по таймерам говорящий может закончить сам. */
   function startAccuse(game, now) {
-    const order = game.turn && game.turn.round === game.round ? game.turn.queue : active(game).map((p) => p.id);
+    const order = game.turn && game.turn.round === game.round ? game.turn.queue : voters(game).map((p) => p.id);
     game.accuse = { queue: order.filter((id) => P(game, id).status === 'active'), idx: -1, speakerId: null, done: false, round: game.round };
-    pushFeed(game, now, { kind: 'system', text: 'Обвинительная минута. По очереди каждый говорит, кого подозревает и почему.' });
+    pushFeed(game, now, { kind: 'system', text: game.small ? 'Обвинительная минута. По очереди каждый говорит, кого из персонажей подозревает и почему.' : 'Обвинительная минута. По очереди каждый говорит, кого подозревает и почему.' });
     nextAccuser(game, now);
   }
 
@@ -330,7 +424,7 @@
     game.phaseStartedAt = now;
     game.autoAt = null;
     game.overlay = null;
-    game.order.forEach((id) => { game.players[id].ready = false; });
+    Object.values(game.players).forEach((p) => { p.ready = false; });
     startClock(game, now, dur(game, s.phase === PH.TURNS ? 'turn' : s.phase === PH.TALK ? 'talk' : 'accuse'));
     game.step += 1;
   }
@@ -357,6 +451,7 @@
       case PH.FINAL: resolveFinal(game, now); break;
       case PH.VERDICT: afterVerdict(game, now); break;
       case PH.ACCOMPLICE: finishAccomplice(game, now, { mode: 'stealth' }); break;
+      case PH.MOLE: resolveMole(game, now); break;
       default: break;
     }
   }
@@ -376,7 +471,9 @@
     const candidates = extra.candidates || active(game).map((p) => p.id);
     setPhase(game, now, VOTE_PH[kind], extra.runoff ? 'poll' : VOTE_KEY[kind]);
     game.vote = { kind, candidates, votes: {}, runoff: !!extra.runoff, count: null };
-    const text = kind === 'kick'
+    const text = kind === 'kick' && game.small
+      ? (extra.runoff ? `Ничья. Переголосование между: ${candidates.map((id) => nm(game, id)).join(', ')}.` : 'Голосование. Каждый указывает, кого из персонажей задержать. Задержать придётся одного.')
+      : kind === 'kick'
       ? (extra.runoff ? `Ничья. Переголосование между: ${candidates.map((id) => nm(game, id)).join(', ')}.` : `Голосование. Каждый указывает, кого исключить. Исключить придётся одного.`)
       : kind === 'poll' ? (game.gang ? 'Четыре раунда позади. Каждый тайно указывает на самого подозрительного. Трое с наибольшим числом голосов получат слово защиты.' : 'Четыре раунда позади. Каждый тайно указывает на самого подозрительного. Двое с наибольшим числом голосов получат слово защиты.')
         : extra.more ? 'Ещё одно исключение. Голосуют все, кто ещё в игре, выбор между оставшимися.'
@@ -387,14 +484,14 @@
   function voteCounts(game, votes, candidates) {
     const count = {};
     candidates.forEach((id) => { count[id] = 0; });
-    Object.entries(votes).forEach(([by, t]) => { if (count[t] !== undefined && P(game, by) && P(game, by).status === 'active') count[t] += 1; });
+    Object.entries(votes).forEach(([by, t]) => { if (count[t] !== undefined && P(game, by) && P(game, by).status === 'active' && !P(game, by).npc) count[t] += 1; });
     return count;
   }
 
   // Кто не проголосовал, голосует против себя. Если его нет среди кандидатов (переголосование, финал), голос пропадает.
   function fillMissingVotes(game, v) {
     v.auto = [];
-    active(game).forEach((p) => {
+    voters(game).forEach((p) => {
       if (v.votes[p.id]) return;
       v.auto.push(p.id);
       if (v.candidates.includes(p.id)) v.votes[p.id] = p.id;
@@ -509,9 +606,15 @@
     game.kicks.push(entry);
     game.decisive = { kind: v.kind, votes: Object.assign({}, v.votes) };
     const roleText = p.role === 'killer' ? 'убийца' : p.role === 'accomplice' ? 'сообщник убийцы' : 'невиновный';
-    pushFeed(game, now, { kind: 'kick', who: id, text: hideRoles(game) ? `Исключён: ${p.name}. Кто это был, станет известно в конце дела.` : `Исключён: ${p.name}. Роль: ${roleText}.` });
+    const word = game.small ? 'Задержан' : 'Исключён';
+    pushFeed(game, now, { kind: 'kick', who: id, text: hideRoles(game) ? `${word}: ${p.name}. Кто это был, станет известно в конце дела.` : `${word}: ${p.name}. Роль: ${roleText}.` });
     const criminalsLeft = active(game).filter((a) => a.role !== 'innocent').length;
-    if (game.gang) {
+    if (game.small) {
+      // Двое невиновных за решёткой: следствие провалено. Оба преступника задержаны: дело раскрыто.
+      if (criminalsLeft === 0) return startVerdict(game, now, 'innocent', 'caught', id);
+      if (game.kicks.filter((x) => x.role === 'innocent').length >= 2) return startVerdict(game, now, 'killer', 'wrong', id);
+      if (p.role !== 'innocent' && !hideRoles(game)) pushFeed(game, now, { kind: 'system', text: p.role === 'killer' ? 'Убийца задержан, сообщник ещё на свободе.' : 'Сообщник задержан, убийца ещё на свободе.' });
+    } else if (game.gang) {
       if (p.role !== 'innocent' && criminalsLeft === 0) return startVerdict(game, now, 'innocent', 'caught', id);
       // Преступников стало столько же, сколько невиновных (2 на 2, 1 на 1): исключать больше некого, они побеждают.
       if (criminalsLeft > 0 && criminalsLeft >= active(game).length - criminalsLeft) return startVerdict(game, now, 'killer', 'outnumbered', id);
@@ -537,10 +640,10 @@
     if (kind !== 'kick') return;
     // Когда роли скрыты, «Экспертиза» приходит после любого исключения, иначе по ней было бы видно, что ушёл невиновный.
     if (kicked.role === 'innocent' || hideRoles(game)) {
-      const pool = rules.labTo === 'innocent' ? act.filter((a) => a.role === 'innocent') : act;
+      const pool = game.small ? voters(game).filter((a) => a.role === 'detective') : rules.labTo === 'innocent' ? act.filter((a) => a.role === 'innocent') : act;
       if (pool.length) {
         game.rng.shuffle(pool).slice(0, rules.labCount || 1).forEach((a) => a.cards.push({ type: 'lab', used: false, got: game.round }));
-        pushFeed(game, now, { kind: 'card', text: 'Улики ушли на экспертизу: один из оставшихся получил карту «Экспертиза».' });
+        pushFeed(game, now, { kind: 'card', text: game.small ? 'Улики ушли на экспертизу: один из следователей получил карту «Экспертиза».' : 'Улики ушли на экспертизу: один из оставшихся получил карту «Экспертиза».' });
       }
       if (kicked.role === 'innocent') return;
     }
@@ -571,25 +674,48 @@
 
   function afterResult(game, now) {
     // Дальше всегда идёт следующий раунд; когда людей мало, сразу финал.
-    if (active(game).length <= ((game.settings.rules && game.settings.rules.finaleAt) || 3) && game.round < ROUNDS) game.round = ROUNDS - 1;
+    if (!game.small && active(game).length <= ((game.settings.rules && game.settings.rules.finaleAt) || 3) && game.round < ROUNDS) game.round = ROUNDS - 1;
     startRound(game, now);
   }
 
   function startVerdict(game, now, winner, reason, kickedId) {
     setPhase(game, now, PH.VERDICT, 'verdict');
     game.verdict = { winner, reason, kickedId, round: game.round };
-    const text = reason === 'caught' ? (game.gang ? 'Убийца и сообщник исключены. Невиновные победили.' : 'Убийца исключён. Невиновные победили.')
+    const text = game.small ? (reason === 'caught' ? 'Убийца и сообщник задержаны. Дело раскрыто.' : 'За решёткой двое невиновных. Преступники ушли.')
+      : reason === 'caught' ? (game.gang ? 'Убийца и сообщник исключены. Невиновные победили.' : 'Убийца исключён. Невиновные победили.')
       : reason === 'outnumbered' ? 'Преступников осталось столько же, сколько невиновных. Они победили.'
       : game.gang ? 'Исключения закончились, а кто-то из преступников остался на свободе.' : 'Исключили невиновного. Убийца остаётся на свободе.';
     pushFeed(game, now, { kind: 'verdict', text });
   }
 
   function afterVerdict(game, now) {
+    if (game.small) {
+      if (!game.moleId) return finish(game, now);
+      // Крот: каждый тайно называет, кто из сидящих за столом работал на преступников.
+      setPhase(game, now, PH.MOLE, 'mole');
+      game.moleVote = { votes: {} };
+      pushFeed(game, now, { kind: 'system', text: 'Кто из вас крот? Каждый тайно называет одного. Крот голосует тоже.' });
+      return;
+    }
     const acc = game.accompliceId && P(game, game.accompliceId);
     if (!game.gang && game.verdict.winner === 'innocent' && acc && acc.status === 'active') {
       setPhase(game, now, PH.ACCOMPLICE, 'accomplice');
       pushFeed(game, now, { kind: 'system', text: 'У сообщника последний шанс: назвать самого опасного невиновного или уйти незамеченным.' });
     } else finish(game, now);
+  }
+
+  function resolveMole(game, now) {
+    const mv = game.moleVote;
+    const count = {};
+    game.team.forEach((id) => { count[id] = 0; });
+    Object.values(mv.votes).forEach((t) => { if (count[t] !== undefined) count[t] += 1; });
+    const max = Math.max(...Object.values(count));
+    const top = game.team.filter((id) => count[id] === max);
+    // Крот вычислен, только если на нём больше всего голосов и он не делит первое место.
+    const caught = max > 0 && top.length === 1 && top[0] === game.moleId;
+    game.moleResult = { caught, count };
+    pushFeed(game, now, { kind: 'vote', text: caught ? `Крот вычислен: ${nm(game, game.moleId)}.` : `Крот так и не вычислен. Это был ${nm(game, game.moleId)}.` });
+    finish(game, now);
   }
 
   function finishAccomplice(game, now, choice) {
@@ -610,6 +736,7 @@
   /* ---------- Подсчёт очков, награды, хронология ---------- */
 
   function computeResults(game) {
+    if (game.small) return smallResults(game);
     const winner = game.verdict.winner;
     const ids = game.order;
     const items = {}, total = {};
@@ -665,6 +792,49 @@
     };
   }
 
+  function chronologyOf(game) {
+    return game.order.map((id) => {
+      const p = P(game, id);
+      return {
+        id, name: p.name, role: p.role, claim: p.card.alibi.claim, real: p.card.alibi.real, lied: lies(p),
+        secret: secretText(game, p), goal: goalText(game, p), goalDone: !!p.goalDone, profession: p.card.profession,
+        habit: p.card.habitText, relation: p.card.relation, motive: p.card.motive, witnesses: p.card.witnesses.map((w) => nm(game, w)),
+        out: p.status === 'out', tags: p.card.tags, npc: !!p.npc,
+      };
+    });
+  }
+
+  /** Очки малого состава. За голоса очков нет: голосование анонимное. */
+  function smallResults(game) {
+    const winner = game.verdict.winner;
+    const items = {}, total = {};
+    game.team.forEach((id) => { items[id] = []; total[id] = 0; });
+    const add = (id, label, val) => { items[id].push({ label, val }); total[id] += val; };
+    const caught = game.kicks.filter((k) => k.role !== 'innocent').length;
+    const mr = game.moleResult;
+    game.team.forEach((id) => {
+      const mole = id === game.moleId;
+      if ((mole ? 'killer' : 'innocent') === winner) add(id, mole ? 'Преступники ушли' : 'Дело раскрыто', 4);
+      if (!mole && caught) add(id, caught > 1 ? 'Задержаны оба преступника' : 'Задержан один преступник', caught);
+      if (mr && mole && !mr.caught) add(id, 'Крота не вычислили', 3);
+      if (mr && !mole && mr.caught) add(id, 'Крот вычислен', 2);
+    });
+    const awards = [];
+    const pl = game.plants.find((x) => !x.overridden && x.by && P(game, x.by) && P(game, x.targetId).role === 'innocent' && game.kicks.some((a) => a.id === x.targetId && a.round >= x.round));
+    if (pl) awards.push({ id: 'framer', title: Content.AWARDS.framer.title, playerId: pl.by, text: `Подменённая улика привела к задержанию: ${nm(game, pl.targetId)}` });
+    const rank = game.team.slice().sort((a, b) => total[b] - total[a]);
+    return {
+      small: true, gang: true, winner, reason: game.verdict.reason, kickedId: game.verdict.kickedId, killerId: game.killerId, accompliceId: game.accompliceId,
+      moleId: game.moleId, mole: mr ? { caught: mr.caught } : null,
+      scene: game.scene, murderTime: game.caseData.time, window: P(game, game.killerId).card.alibi.window,
+      score: total, items, rank, awards, chronology: chronologyOf(game), minutes: Math.max(1, Math.round((game.endedAt - game.startedAt) / 60000)),
+      plants: game.plants, accompliceChoice: null,
+      clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
+      kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role })),
+      votes: game.votesLog.map((x) => ({ round: x.round, kind: x.kind, runoff: x.runoff, count: x.count, skipped: x.auto.length })), rounds: game.round,
+    };
+  }
+
   function findSherlock(game) {
     const list = game.suspicions.filter((s) => s.target === game.killerId && P(game, s.by) && P(game, s.by).role === 'innocent').sort((a, b) => a.t - b.t);
     return list.length ? list[0].by : null;
@@ -702,7 +872,7 @@
     if (game.phase === PH.TALK) {
       // При живом ведущем к обвинениям переходит он, кнопки готовности нет.
       if (isManual(game)) bad('Дальше ведёт ведущий.');
-      needActive(p); p.ready = !p.ready; return;
+      needActive(p); if (p.npc) bad('Персонажи не голосуют.'); p.ready = !p.ready; return;
     }
     bad('Сейчас это недоступно.');
   };
@@ -753,6 +923,14 @@
     needPhase(game, PH.TURNS);
     if (game.turn.speakerId !== p.id) bad('Сейчас говорит другой игрок.');
     if (game.turn.revealed) bad('Вы уже открыли карточку в этот ход.');
+    if (game.small) {
+      const c = P(game, pl.target);
+      if (!c || !c.npc || c.status !== 'active') bad('Выберите персонажа, который ещё на свободе.');
+      if (!SAFE_TRAITS.includes(pl.trait)) bad('Эту строку так не открыть.');
+      if (c.revealed[pl.trait]) bad('Это уже раскрыто.');
+      if (lockedTrait(game, c, pl.trait)) bad('Из профессии и особенности при всех открывается только одно. Второе покажут только карты.');
+      return npcReveal(game, now, p, c, pl.trait, 'choice');
+    }
     if (![...SAFE_TRAITS, 'secret'].includes(pl.trait)) bad('Эту характеристику раскрыть нельзя.');
     if (p.revealed[pl.trait]) bad('Это уже раскрыто.');
     if (lockedTrait(game, p, pl.trait)) bad('Открыть можно только одно: особенность или профессию. Второе раскроют только карты.');
@@ -770,6 +948,7 @@
   HANDLERS.vote = (game, p, pl) => {
     needPhase(game, ...VOTE_PHASES);
     needActive(p);
+    if (p.npc) bad('Персонажи не голосуют.');
     const v = game.vote;
     if (game.overlay) bad('Подождите, идёт другое действие.');
     if (!v.candidates.includes(pl.target) || pl.target === p.id) bad('Выберите другого игрока из списка.');
@@ -815,9 +994,11 @@
     const i = unusedCard(p, type);
     if (i < 0) bad('Такой карты у вас нет.');
     const t = pl.target ? P(game, pl.target) : null;
+    if (game.small && [t, pl.target2 ? P(game, pl.target2) : null].some((x) => x && !x.npc)) bad('Карты играют на персонажей дела.');
     if (type === 'warrant') {
       if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока.');
-      if (!SEARCHABLE_TRAITS.includes(pl.trait) || t.revealed[pl.trait]) bad('Эта характеристика уже известна.');
+      // У персонажей нет личной цели: «Обыск» смотрит только строки показаний.
+      if (!(game.small ? ASKABLE_TRAITS : SEARCHABLE_TRAITS).includes(pl.trait) || t.revealed[pl.trait]) bad('Эта характеристика уже известна.');
       let extra = null;
       // «Ложный след» тратится, только когда настоящий ответ выдал бы игрока: совпадение с уликой или ложное алиби.
       const clueTags = game.clues.map((c) => c.tag);
@@ -827,7 +1008,9 @@
       let text = tv.text;
       if (fake && pl.trait !== 'alibi') text = cleanValue(game, t, pl.trait);
       if (pl.trait === 'alibi') extra = lies(t) && !fake ? 'Алиби ложное: на самом деле игрок был в другом месте.' : 'Алиби подтверждается: игрок действительно был там.';
-      p.notes.push({ t: now, round: game.round, targetId: t.id, trait: pl.trait, text, extra });
+      // Метки увиденного значения нужны ботам: что именно показал «Обыск» (поддельное значение без меток).
+      const seen = fake ? [] : (tv.tags || []);
+      p.notes.push({ t: now, round: game.round, targetId: t.id, trait: pl.trait, text, extra, tags: seen, lie: pl.trait === 'alibi' && lies(t) && !fake });
     } else if (type === 'testimony') {
       if (!t || t.id === p.id || t.status !== 'active') bad('Выберите другого игрока.');
       if (!ASKABLE_TRAITS.includes(pl.trait) || t.revealed[pl.trait]) bad('Эта характеристика уже известна.');
@@ -849,13 +1032,7 @@
       const tag = pickSwapTag(game, t, p);
       if (!tag) bad('У этого игрока не за что зацепиться. Выберите другого.');
       const no = game.clues.indexOf(clue) + 1;
-      if (!clue.orig) clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
-      game.plants.forEach((x) => { if (x.clueId === clue.id) x.overridden = true; });
-      clue.tag = tag;
-      clue.text = game.rng.pick(Content.clueTexts(game.caseData, tag));
-      clue.fits = game.order.filter((id) => P(game, id).card.tags.includes(tag));
-      clue.planted = true;
-      game.plants.push({ by: p.id, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
+      plantClue(game, clue, tag, t, p.id);
       p.notes.push({ t: now, round: game.round, kind: 'swap', targetId: t.id, trait: null, text: `Следующая улика (${no}) подменена. Когда её найдут, она укажет на игрока ${t.name}.` });
     } else if (type === 'lab') {
       // Экспертиза: правдивая ли найденная улика или её подменили картой «Подмена улики».
@@ -869,6 +1046,28 @@
     p.cards[i].used = true;
   };
 
+  function plantClue(game, clue, tag, t, byId) {
+    if (!clue.orig) clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
+    game.plants.forEach((x) => { if (x.clueId === clue.id) x.overridden = true; });
+    clue.tag = tag;
+    clue.text = game.rng.pick(Content.clueTexts(game.caseData, tag));
+    clue.fits = game.order.filter((id) => P(game, id).card.tags.includes(tag));
+    clue.planted = true;
+    game.plants.push({ by: byId, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
+  }
+
+  /** Вдвоём крота нет: одну улику подменяет само дело, наводя её на невиновного персонажа. */
+  function autoSwap(game) {
+    const clue = nextClue(game);
+    if (!clue) return;
+    const ghost = { card: null };
+    const pool = game.rng.shuffle(active(game).filter((c) => c.role === 'innocent'));
+    for (const t of pool) {
+      const tag = pickSwapTag(game, t, ghost);
+      if (tag) { plantClue(game, clue, tag, t, null); return; }
+    }
+  }
+
   /** Что игрок узнал об улике «Экспертизой»: 'fake', 'real' или null. */
   const labVerdict = (me, c) => { const n = me && me.notes.find((x) => x.kind === 'lab' && x.clueId === c.id); return n ? (n.fake ? 'fake' : 'real') : null; };
 
@@ -881,7 +1080,7 @@
     // Не повторять метки других улик и не возвращать настоящую метку уже подменённой. Метку ещё не найденной подменённой
     // улики не учитываем: иначе по списку целей второй держатель «Подмены» понял бы, что её уже сыграли и на кого.
     const used = new Set(game.clues.map((c) => (c.orig ? c.orig.tag : c.tag)).concat(game.clues.filter((c) => c.revealedRound !== null).map((c) => c.tag)));
-    const options = target.card.tags.filter((t) => !used.has(t) && !by.card.tags.includes(t));
+    const options = target.card.tags.filter((t) => !used.has(t) && !(by.card ? by.card.tags : []).includes(t));
     if (!options.length) return null;
     const scored = options.map((t) => {
       const h = game.order.filter((id) => P(game, id).card.tags.includes(t)).length;
@@ -910,6 +1109,13 @@
     if (isManual(game)) bad('Следующего включает ведущий.');
     if (pl.step != null && pl.step !== game.step) bad('Слово уже передали.');
     stepped(game, now, () => nextAccuser(game, now));
+  };
+
+  HANDLERS.molevote = (game, p, pl) => {
+    needPhase(game, PH.MOLE);
+    if (p.npc) bad('Персонажи не голосуют.');
+    if (!game.team.includes(pl.target) || pl.target === p.id) bad('Выберите другого игрока за столом.');
+    game.moleVote.votes[p.id] = pl.target;
   };
 
   HANDLERS.accomplice = (game, p, pl, now) => {
@@ -951,19 +1157,20 @@
   /** Все ли, от кого фаза ждёт ответа, уже ответили. */
   function allDone(game) {
     const act = active(game);
-    if (game.phase === PH.BRIEF) return game.order.every((id) => game.players[id].ready || game.players[id].auto) && game.order.every((id) => game.players[id].alibiChosen);
+    if (game.phase === PH.BRIEF) return actors(game).every((p) => p.ready || p.auto) && game.order.every((id) => game.players[id].alibiChosen);
+    if (game.phase === PH.MOLE) return game.team.every((id) => game.moleVote.votes[id]);
     if (game.phase === PH.TALK) {
-      const humans = act.filter((p) => !p.auto);
+      const humans = (game.small ? voters(game) : act).filter((p) => !p.auto);
       const pool = humans.length ? humans : act;
       return pool.length > 0 && pool.every((p) => p.ready);
     }
-    if (VOTE_PHASES.includes(game.phase)) return act.length > 0 && act.every((p) => game.vote.votes[p.id]);
+    if (VOTE_PHASES.includes(game.phase)) { const vs = voters(game); return vs.length > 0 && vs.every((p) => game.vote.votes[p.id]); }
     return false;
   }
 
   function advance(game, now) {
     if (game.overlay) return;
-    if (VOTE_PHASES.includes(game.phase)) {
+    if (VOTE_PHASES.includes(game.phase) || game.phase === PH.MOLE) {
       // Все проголосовали: подводим итог сразу, ведущему ничего нажимать не надо.
       if (allDone(game) && !game.autoAt) game.autoAt = now + 1500;
       return;
@@ -1045,7 +1252,7 @@
     const decided = ended || game.phase === PH.VERDICT || game.phase === PH.ACCOMPLICE;
     // Без банды после победы невиновных у сообщника ещё последний ход: пока он не сделан, сообщник остаётся тайной.
     const accLeft = !game.gang && game.accompliceId && game.verdict && game.verdict.winner === 'innocent' && P(game, game.accompliceId).status === 'active' && !ended;
-    const knows = (id) => { const p = game.players[id]; return (decided && !(accLeft && id === game.accompliceId)) || id === viewerId || (p.status === 'out' && !hideRoles(game)) || !!(me && me.role !== 'innocent' && p.role !== 'innocent'); };
+    const knows = (id) => { const p = game.players[id]; return (decided && !(accLeft && id === game.accompliceId)) || id === viewerId || (p.status === 'out' && !hideRoles(game)) || !!(me && ['killer', 'accomplice', 'mole'].includes(me.role) && ['killer', 'accomplice'].includes(p.role)); };
     const voting = VOTE_PHASES.includes(game.phase) && game.vote;
     const turn = game.turn && game.phase === PH.TURNS ? game.turn : null;
     const acc = game.accuse && game.phase === PH.ACCUSE ? game.accuse : null;
@@ -1063,7 +1270,7 @@
       const knowsRole = knows(id);
       const qi = game.turn ? game.turn.queue.indexOf(id) : -1;
       return {
-        id, name: p.name, bot: p.bot, status: p.status, revealed: rev,
+        id, name: p.name, bot: p.bot, npc: !!p.npc, status: p.status, revealed: rev,
         // В обычном режиме сервер не отдаёт, какие открытые приметы совпадают с уликами: это игроки замечают сами.
         tags: chips(ended ? p.card.tags : game.settings.hints === 'light' ? shownTags(p) : []),
         role: knowsRole ? p.role : null,
@@ -1078,7 +1285,7 @@
       now: Date.now(), step: game.step || 0, phase: game.phase, phaseStartedAt: game.phaseStartedAt, phaseEndsAt: game.phaseEndsAt, paused: game.paused,
       clock: game.clock && game.phase !== PH.ENDED ? { state: game.clock.state, full: game.clock.full, left: Math.round(clockLeft(game, Date.now())) } : null,
       manual: isManual(game), mode: game.settings.mode, hints: game.settings.hints === 'light' ? 'light' : 'normal', hostId: game.hostId,
-      round: game.round, rounds: ROUNDS, finale: isFinale(game), speed: game.settings.speed,
+      round: game.round, rounds: roundsOf(game), finale: isFinale(game), speed: game.settings.speed,
       case: { title: game.caseData.title, victim: game.caseData.victim, time: game.caseData.time, teaser: game.caseData.teaser, locations: game.caseData.locations, scene: game.scene, icon: game.caseData.icon },
       accomplice: !!game.accompliceId, gang: !!game.gang,
       criminals: game.gang && !hideRoles(game) ? { total: 2, left: active(game).filter((a) => a.role !== 'innocent').length } : null,
@@ -1095,26 +1302,53 @@
       kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: knows(k.id) ? k.role : null, count: k.count })),
       results: ended ? game.results : null,
     };
+    if (game.small) {
+      // Люди за столом: кто говорит, кто проголосовал. Крота видит только он сам, остальные узнают в конце дела.
+      v.small = {
+        mole: !!game.moleId, criminalsOut: game.kicks.filter((k) => k.role !== 'innocent').length, wrongOut: game.kicks.filter((k) => k.role === 'innocent').length,
+        team: game.team.map((id) => {
+          const p = game.players[id];
+          return {
+            id, name: p.name, bot: p.bot, host: id === game.hostId, ready: p.ready, auto: p.auto && !p.bot,
+            role: ended || id === viewerId ? p.role : null,
+            speaking: (!!turn && turn.speakerId === id) || (!!acc && acc.speakerId === id),
+            spoke: !!game.turn && game.turn.round === game.round && game.turn.queue.indexOf(id) >= 0 && (game.phase !== PH.TURNS ? game.phase !== PH.CLUE : game.turn.queue.indexOf(id) < game.turn.idx),
+            voted: (!!voting && !!game.vote.votes[id]) || (game.phase === PH.MOLE && !!game.moleVote.votes[id]),
+          };
+        }),
+        moleVote: game.phase === PH.MOLE ? { voted: Object.keys(game.moleVote.votes), my: me ? game.moleVote.votes[me.id] || null : null } : null,
+      };
+      // Без живых людей в списке «проголосовали» персонажи не участвуют.
+      if (v.vote) v.vote.voted = v.vote.voted.filter((id) => !game.players[id].npc);
+    }
     if (me) {
       const canAct = me.status === 'active';
       const mySpeak = !!turn && turn.speakerId === me.id;
       v.me = {
-        id: me.id, name: me.name, role: me.role, status: me.status, card: viewCard(game, me),
-        cards: me.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, desc: CARDS[c.type].desc, used: c.used })),
+        id: me.id, name: me.name, role: me.role, status: me.status, card: me.card ? viewCard(game, me) : null,
+        cards: me.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, desc: game.small ? Content.CARDS_NPC[c.type] || CARDS[c.type].desc : CARDS[c.type].desc, used: c.used })),
         notes: me.notes.map((n) => ({ kind: n.kind || 'warrant', round: n.round, targetId: n.targetId, trait: n.trait, label: n.trait ? TRAITS[n.trait] : '', text: n.text, extra: n.extra })),
         swapTargets: game.phase === PH.TALK && me.status === 'active' && unusedCard(me, 'swap') >= 0 ? swapTargets(game, me) : [],
         revealed: Object.assign({}, me.revealed), ready: me.ready, alibiChosen: me.alibiChosen,
         isHost: me.id === game.hostId,
         can: {
-          reveal: mySpeak && !game.turn.revealed ? volunteerable(game, me) : [],
-          locked: mySpeak && !game.turn.revealed ? [...SAFE_TRAITS].filter((t) => !me.revealed[t] && lockedTrait(game, me, t)) : [],
+          reveal: mySpeak && !game.turn.revealed ? (game.small ? npcReveals(game) : volunteerable(game, me)) : [],
+          locked: mySpeak && !game.turn.revealed && !game.small ? [...SAFE_TRAITS].filter((t) => !me.revealed[t] && lockedTrait(game, me, t)) : [],
           back: me.id === game.hostId && canUndo(game),
           endturn: mySpeak || (game.phase === PH.DEFENSE && game.defense.order[game.defense.idx] === me.id),
           endaccuse: !!acc && acc.speakerId === me.id && !isManual(game),
           card: game.phase === PH.TALK && !game.overlay && canAct,
-          vote: !!voting && !game.overlay && canAct,
+          vote: !!voting && !game.overlay && canAct && !me.npc,
+          molevote: game.phase === PH.MOLE && !me.npc,
         },
       };
+      // Крот знает преступников и видит, какие улики на кого указывают.
+      if (me.role === 'mole') {
+        v.me.moleInfo = {
+          killerId: game.killerId, accompliceId: game.accompliceId,
+          clues: game.clues.map((c) => { const o = c.orig || c; return { id: c.id, label: Content.TAGS[o.tag].label, fits: o.fits.filter((id) => [game.killerId, game.accompliceId].includes(id)), revealed: c.revealedRound !== null, replaced: !!c.orig && c.revealedRound !== null }; }),
+        };
+      }
       if (me.role === 'killer' || (game.gang && me.role === 'accomplice')) {
         v.me.killerInfo = {
           accompliceId: me.role === 'killer' ? game.accompliceId : null,
@@ -1133,6 +1367,7 @@
         votes: game.vote ? Object.assign({}, game.vote.votes) : {},
         players: game.order.map((id) => { const p = game.players[id]; return { id, name: p.name, role: p.role, auto: p.auto, bot: p.bot, status: p.status, card: viewCard(game, p), cards: p.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, used: c.used })), goalDone: p.goalDone }; }),
         clues: game.clues.map((c) => ({ id: c.id, tag: c.tag, label: Content.TAGS[c.tag].label, text: c.text, planted: c.planted, orig: c.orig ? Content.TAGS[c.orig.tag].label : null, revealedRound: c.revealedRound, fits: c.fits.map((i) => nm(game, i)) })),
+        moleId: game.moleId || null,
       };
     }
     return v;
@@ -1147,7 +1382,7 @@
         const list = Array.from({ length: players }, (_, i) => ({ id: 'b' + i, name: 'Бот ' + (i + 1), bot: true }));
         let now = 1000;
         const game = createGame({ caseData, players: list, seed: seed * 1000 + g, now, settings: Object.assign({ mode: 'timers' }, settings) });
-        const errs = Generator.verify({ cards: Object.fromEntries(game.order.map((id) => [id, game.players[id].card])), clues: game.clues.filter((c) => !c.planted) }, game.order, game.killerId, game.gang ? game.accompliceId : null);
+        const errs = game.small ? [] : Generator.verify({ cards: Object.fromEntries(game.order.map((id) => [id, game.players[id].card])), clues: game.clues.filter((c) => !c.planted) }, game.order, game.killerId, game.gang ? game.accompliceId : null);
         if (errs.length) out.violations.push(...errs);
         let steps = 0;
         while (game.phase !== PH.ENDED && steps++ < 80000) { now += 400; tick(game, now); }
@@ -1167,7 +1402,7 @@
   }
 
   const E = {
-    PH, ROUNDS, GameError, createGame, act, tick, view, pause, resume, skip, setHost, simulate, alibiText, traitValue, lies, shownTags,
+    PH, ROUNDS, SMALL_ROUNDS, actors, voters, npcReveals, GameError, createGame, act, tick, view, pause, resume, skip, setHost, simulate, alibiText, traitValue, lies, shownTags,
     nm, active, unusedCard, pushFeed, dur, computeResults, swapTargets, isManual, lockedTrait,
   };
   if (typeof self !== 'undefined' && self.DetectiveBots) self.DetectiveBots(E);

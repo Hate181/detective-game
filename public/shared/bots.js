@@ -11,8 +11,68 @@
     const delay = (game, a, b) => Math.max(350, (a + game.rng.next() * (b - a)) * 1000 * (game.settings.speed || 1));
     const mem = (game, p) => (game.botMem[p.id] = game.botMem[p.id] || { said: {}, spoke: false, advised: false });
 
+    /** Малый состав: подозрительность персонажей для следователя-бота. Видит открытые строки и свои «Обыски».
+        Крот прикрывает настоящих преступников. */
+    function smallSuspicion(game, viewer) {
+      const out = {};
+      const clues = game.clues.filter((c) => c.revealedRound !== null);
+      const lab = new Set(viewer.notes.filter((n) => n.kind === 'lab' && n.fake).map((n) => n.clueId));
+      for (const t of active(game)) {
+        let s = 0;
+        const shown = new Set(E.shownTags(t));
+        viewer.notes.filter((n) => n.targetId === t.id && n.tags).forEach((n) => n.tags.forEach((g) => shown.add(g)));
+        for (const c of clues) if (!lab.has(c.id) && shown.has(c.tag)) s += 3;
+        if (viewer.notes.some((n) => n.targetId === t.id && n.lie)) s += 5;
+        if (viewer.role === 'mole' && t.role !== 'innocent') s -= 50;
+        out[t.id] = s + game.rng.next() * 1.5;
+      }
+      return out;
+    }
+
+    function smallTurn(game, p, now) {
+      const opts = E.npcReveals(game);
+      if (!opts.length) return false;
+      const sus = smallSuspicion(game, p);
+      // Следователь копает под самых подозрительных, крот открывает невиновных, чтобы шум был громче.
+      const pool = p.role === 'mole' ? opts.filter((o) => game.players[o.id].role === 'innocent') : opts.slice().sort((a, b) => sus[b.id] - sus[a.id]).slice(0, 3);
+      const o = game.rng.pick(pool.length ? pool : opts);
+      const pref = o.traits.filter((t) => t === 'profession' || t === 'habit' || t === 'alibi');
+      return act(game, p.id, 'reveal', { target: o.id, trait: game.rng.pick(pref.length ? pref : o.traits) }, now).ok;
+    }
+
+    function smallCard(game, p, now) {
+      const card = p.cards.find((c) => !c.used && ['warrant', 'testimony', 'confront', 'swap', 'lab'].includes(c.type));
+      if (!card) return false;
+      const sus = smallSuspicion(game, p);
+      const top = topOf(sus);
+      if (card.type === 'swap') {
+        const ok = E.swapTargets(game, p).filter((id) => game.players[id].role === 'innocent');
+        return ok.length ? act(game, p.id, 'card', { type: 'swap', target: game.rng.pick(ok) }, now).ok : false;
+      }
+      if (card.type === 'lab') {
+        const done = new Set(p.notes.filter((n) => n.kind === 'lab').map((n) => n.clueId));
+        const clue = game.clues.filter((c) => c.revealedRound !== null && !done.has(c.id)).pop();
+        return clue ? act(game, p.id, 'card', { type: 'lab', clueId: clue.id }, now).ok : false;
+      }
+      if (card.type === 'confront') {
+        const first = topOf(sus), second = first && topOf(sus, (id) => id !== first);
+        if (!second) return false;
+        const t1 = game.players[first], t2 = game.players[second];
+        const pool = Content.CONFRONT_TRAITS.filter((x) => !t1.revealed[x] || !t2.revealed[x]);
+        if (!pool.length) return false;
+        return act(game, p.id, 'card', { type: 'confront', target: first, target2: second, trait: pool.includes('alibi') ? 'alibi' : game.rng.pick(pool) }, now).ok;
+      }
+      if (!top) return false;
+      const t = game.players[top];
+      const pool = Content.ASKABLE_TRAITS.filter((x) => !t.revealed[x] && !p.notes.some((n) => n.targetId === t.id && n.trait === x));
+      if (!pool.length) return false;
+      const pref = ['profession', 'habit', 'alibi'].filter((x) => pool.includes(x));
+      return act(game, p.id, 'card', { type: card.type, target: top, trait: pref.length ? game.rng.pick(pref) : game.rng.pick(pool) }, now).ok;
+    }
+
     /** Оценка подозрительности каждого игрока с точки зрения бота. */
     function suspicion(game, viewer) {
+      if (game.small) return smallSuspicion(game, viewer);
       const out = {};
       const clues = game.clues.filter((c) => c.revealedRound !== null);
       for (const t of active(game)) {
@@ -122,7 +182,7 @@
       if (!pool.length) return null;
       pool.forEach((id) => { if (sus[id] === undefined) sus[id] = game.rng.next(); });
       if (p.role === 'innocent' && finalists) finalists.forEach((id) => { if (sus[id] !== undefined) sus[id] += 2; });
-      if (p.role !== 'innocent') pool.forEach((id) => { if (game.players[id].role !== 'innocent') sus[id] -= 50; });
+      if (p.role === 'killer' || p.role === 'accomplice') pool.forEach((id) => { if (game.players[id].role !== 'innocent') sus[id] -= 50; });
       return pool.sort((a, b) => sus[b] - sus[a])[0];
     }
 
@@ -145,6 +205,7 @@
         const key = `${game.round}:${game.turn.idx}`;
         const stage = m.turn && m.turn.key === key ? m.turn.stage : 0;
         m.turn = { key, stage: stage + 1 };
+        if (stage === 0 && game.small) return smallTurn(game, p, now) || true;
         if (stage === 0) {
           const t = chooseReveal(game, p);
           return t ? act(game, p.id, 'reveal', { trait: t }, now).ok : true;
@@ -157,7 +218,7 @@
         const elapsed = now - game.phaseStartedAt;
         const total = game.clock ? game.clock.full : 1;
         const r = game.rng.next();
-        if (r < 0.35 && elapsed > total * 0.1 && useCard(game, p, now)) return true;
+        if (r < 0.35 && elapsed > total * 0.1 && (game.small ? smallCard(game, p, now) : useCard(game, p, now))) return true;
         if (!E.isManual(game) && elapsed > total * 0.4 && !p.ready && game.rng.chance(0.5)) return act(game, p.id, 'ready', {}, now).ok;
         return false;
       }
@@ -180,6 +241,11 @@
         m.spoke = false;
         return act(game, p.id, 'endspeech', {}, now).ok;
       }
+      if (ph === PH.MOLE) {
+        if (game.moleVote.votes[p.id]) return false;
+        const others = game.team.filter((id) => id !== p.id);
+        return others.length ? act(game, p.id, 'molevote', { target: game.rng.pick(others) }, now).ok : false;
+      }
       if (ph === PH.ACCOMPLICE) {
         if (p.id !== game.accompliceId) return false;
         if (game.rng.chance(0.5)) return act(game, p.id, 'accomplice', { mode: 'stealth' }, now).ok;
@@ -191,8 +257,8 @@
 
     function botStep(game, now) {
       let changed = false;
-      for (const id of game.order) {
-        const p = game.players[id];
+      for (const p of E.actors(game)) {
+        const id = p.id;
         if (!p.auto) continue;
         const due = game.botDue[id];
         if (due === undefined) { game.botDue[id] = now + delay(game, 0.5, 3); continue; }

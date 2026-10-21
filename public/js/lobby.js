@@ -48,6 +48,7 @@
         else if (a === 'discuss' || a === 'turn') call('room:setting', { key: a, value: Number(b.dataset.v) });
         else if (a === 'mode') call('room:setting', { key: 'mode', value: b.dataset.v });
         else if (a === 'hints') call('room:setting', { key: 'hints', value: b.dataset.v });
+        else if (a === 'table') call('room:setting', { key: 'table', value: b.dataset.v });
         else if (a === 'ready') call('room:ready');
         else if (a === 'seat') call('room:seat');
         else if (a === 'start') call('room:start');
@@ -91,11 +92,16 @@
             ${isHost && p.id !== st.hostId ? `<button class="x" data-a="kick" data-id="${esc(p.id)}" title="Убрать из комнаты" aria-label="Убрать ${esc(p.name)}">×</button>` : ''}
           </div>
         </div>`; }).join('');
+      const small = !!st.rules.small;
       const empties = Array.from({ length: Math.max(0, need - n) }, () => '<div class="row-p empty"><span class="av" style="background:var(--panel-2);box-shadow:none"></span><span>Свободное место</span><span></span></div>').join('');
       setHtml(root.querySelector('#lRoster'), `
         <div class="panel-head"><h2>Игроки</h2><span class="count">${n} из ${st.rules.max} · нужно от ${need}</span></div>
         <div class="roster">${rows}${empties}</div>
-        <div class="rules-line"><span>Преступники: <b>${st.rules.gang ? 'убийца и сообщник, исключить нужно обоих; поровну с невиновными они побеждают' : st.rules.accomplice ? 'убийца и сообщник' : 'убийца'}</b></span><span>Ведущий играет наравне со всеми</span></div>`);
+        ${small ? `<div class="npc-seats" aria-label="Подозреваемые"><div class="label">Подозреваемые</div><div class="npc-row">${Array.from({ length: 6 }, () => '<span class="npc-sil" aria-hidden="true"></span>').join('')}</div>
+          <p class="hint">Шесть персонажей дела. Кто они, узнаете, когда откроете дело.</p></div>` : ''}
+        <div class="rules-line">${small
+          ? `<span>Преступники: <b>убийца и сообщник среди персонажей, задержать нужно обоих раньше, чем двух невиновных</b></span><span>${n >= 3 ? 'Один из вас тайно крот и играет за преступников' : 'Вдвоём крота нет, при трёх и больше один из вас тайно крот'}</span>`
+          : `<span>Преступники: <b>${st.rules.gang ? 'убийца и сообщник, исключить нужно обоих; поровну с невиновными они побеждают' : st.rules.accomplice ? 'убийца и сообщник' : 'убийца'}</b></span><span>Ведущий играет наравне со всеми</span>`}</div>`);
 
       const packOpts = st.packs.map((p) => `
         <button class="case-opt random ${st.pack === p.id ? 'sel' : ''}" data-a="pack" data-id="${esc(p.id)}" ${isHost ? '' : 'disabled'}>
@@ -109,11 +115,13 @@
       const s = st.settings;
       setHtml(root.querySelector('#lSet'), `
         <div class="panel-head"><h2>Как играем</h2><span class="count">${isHost ? 'настраивает ведущий' : `ведущий: ${esc(hostP.name || '')}`}</span></div>
-        <div class="set-row" style="margin-top:0;padding-top:0;border:0"><div><div class="label">Ход партии</div><p class="hint" style="margin:4px 0 0">${s.mode === 'host' ? 'Ведущий листает раунды и сам запускает таймер.' : 'Фазы сменяются по таймеру.'}</p></div>
+        <div class="set-row" style="margin-top:0;padding-top:0;border:0"><div><div class="label">Сколько вас</div><p class="hint" style="margin:4px 0 0">${s.table === 'small' ? 'Подозреваемые: шесть персонажей дела. Вы ведёте следствие, но при трёх и больше один из вас тайно крот.' : 'Подозреваемые вы сами: среди вас убийца и сообщник.'}</p></div>
+          ${seg('table', [['small', '2–5'], ['full', '6 и более']], s.table === 'small' ? 'small' : 'full', isHost)}</div>
+        <div class="set-row"><div><div class="label">Ход партии</div><p class="hint" style="margin:4px 0 0">${s.mode === 'host' ? 'Ведущий листает раунды и сам запускает таймер.' : 'Фазы сменяются по таймеру.'}</p></div>
           ${seg('mode', [['host', 'Ведущий'], ['timers', 'Таймеры']], s.mode, isHost)}</div>
         <div class="set-row"><div><div class="label">Режим</div><p class="hint" style="margin:4px 0 0">${s.hints === 'light' ? 'Игра сама подсвечивает, кто подходит под улику.' : 'Совпадения с уликами не подсвечиваются: слушайте и сверяйте сами.'}</p></div>
           ${seg('hints', [['normal', 'Обычный'], ['light', 'Лайт']], s.hints || 'normal', isHost)}</div>
-        <div class="set-row"><div class="label">Рассказ каждого</div>${seg('turn', st.rules.turnOptions.map((v) => [v, `${v} с`]), s.turn, isHost)}</div>
+        <div class="set-row"><div class="label">${s.table === 'small' ? 'Ход каждого' : 'Рассказ каждого'}</div>${seg('turn', st.rules.turnOptions.map((v) => [v, `${v} с`]), s.turn, isHost)}</div>
         <div class="set-row"><div class="label">Обсуждение в раунде</div>${seg('discuss', st.rules.talkOptions.map((v) => [v, v >= 120 ? `${v / 60} мин` : `${v} с`]), s.discuss, isHost)}</div>`);
 
       const cs = st.canStart;
