@@ -16,6 +16,9 @@
     innocent: { cls: 'role-innocent', name: 'Невиновный', hint: 'Найдите убийцу и не дайте исключить своих.', gang: 'Среди вас убийца и его сообщник. Чтобы закрыть дело, исключить нужно обоих. Если их станет столько же, сколько вас, они победят.' },
     killer: { cls: 'role-killer', name: 'Убийца', hint: 'Не выдайте себя. Улики ниже указывают на вас.', gang: 'Не выдайте себя и сообщника. Вам подходят три улики из четырёх, сообщнику тоже три, а кому-то из невиновных столько же.' },
     accomplice: { cls: 'role-accomplice', name: 'Сообщник', hint: 'Вы знаете убийцу. Уводите подозрения.', gang: 'Вы знаете убийцу, и вас обоих ищут. Каждому из вас подходят три улики из четырёх. Вы победите, если хоть один останется в игре или если вас станет столько же, сколько невиновных.' },
+    // Малый состав: люди ведут следствие, подозреваемые персонажи дела.
+    detective: { cls: 'role-innocent', name: 'Следователь', hint: 'Среди шести персонажей убийца и сообщник. Задержите обоих раньше, чем за решёткой окажутся двое невиновных.', mole: ' Один из сидящих с вами за столом крот: он знает преступников и уводит следствие в сторону.' },
+    mole: { cls: 'role-killer', name: 'Крот', hint: 'Вы работаете на преступников. Уводите следствие к невиновным, пока за решёткой не окажутся двое из них. В конце все попробуют вычислить крота.' },
   };
   const VIA = { vote: 'Больше всего голосов.', runoff: 'Решило переголосование.', random: 'Голоса разделились поровну, задержала полиция.', final: 'Итог финального голосования.' };
   const PASSIVE = ['advocate', 'trail'];
@@ -24,6 +27,7 @@
   const HOST_BTN = {
     brief: ['Начать дело', 'Откроется первая улика'],
     clue: ['К рассказам', 'Каждый расскажет о себе по очереди'],
+    mole: ['Подвести итог', 'Кто крот, решит большинство'],
     turns: ['Передать слово дальше', 'Когда рассказ закончен'],
     talk: ['К обвинениям', 'Когда обсуждение выдохлось'],
     accuse: ['Следующий', 'Когда минута прошла'],
@@ -99,8 +103,11 @@
       this.idx = {}; this.byId = {}; this.conn = {};
       g.players.forEach((p, i) => { this.idx[p.id] = i; this.byId[p.id] = p; });
       st.players.forEach((p) => { this.conn[p.id] = p; });
+      // Малый состав: люди не сидят в ленте персонажей, у них свой ряд в шапке и аватар без номера места.
+      this.small = !!g.small; this.tIdx = {};
+      if (g.small) g.small.team.forEach((p, i) => { this.tIdx[p.id] = i; this.byId[p.id] = p; });
       photoAt = {}; g.players.forEach((p, i) => { if (this.conn[p.id] && this.conn[p.id].photo) photoAt[i] = this.conn[p.id].photo; });
-      const key = `${st.code}:${g.players.map((p) => p.id).join()}:${g.case.title}:${g.god ? g.god.seed : ''}`;
+      const key = `${st.code}:${g.players.map((p) => p.id).join()}:${g.small ? g.small.team.map((p) => p.id).join() : ''}:${g.case.title}:${g.god ? g.god.seed : ''}`;
       if (key !== this.gameKey) { this.gameKey = key; this.seenClues = null; this.phaseKey = null; this.lastChat = 0; }
 
       const pk = `${g.phase}:${g.round}:${g.turn ? g.turn.idx : ''}:${g.accuse ? g.accuse.idx : ''}:${g.defense ? g.defense.idx : ''}:${g.vote ? (g.vote.runoff ? 'r' : '') + g.vote.kind : ''}`;
@@ -115,8 +122,19 @@
       this.tickClocks();
     },
 
+    /** Аватар по id: персонаж или игрок за столом с номером места, человек малого состава без номера. */
+    av(id, cls = '') {
+      const p = this.byId[id] || { name: '?' };
+      if (this.tIdx && this.tIdx[id] !== undefined) { const c = this.conn[id]; return UI.avatar(p.name, 10 + this.tIdx[id], cls, null, c && c.photo); }
+      return avatar(p.name, this.idx[id], cls);
+    },
+    /** Кто за столом ходит и голосует: все игроки или, в малом составе, люди. */
+    people() { return this.small ? this.g.small.team : this.g.players; },
+
     onPhase(g) {
-      if (g.phase === 'clue') toast(g.finale ? 'Последний раунд. Найдены все улики.' : `Раунд ${g.round}. Найдена новая улика.`);
+      if (g.phase === 'mole') toast('Кто из вас крот? Назовите одного.');
+      else if (this.small && g.phase === 'turns' && g.turn && g.turn.speakerId === this.me.id) toast('Ваш ход: откройте строку одного из персонажей.');
+      else if (g.phase === 'clue') toast(g.finale ? 'Последний раунд. Найдены все улики.' : `Раунд ${g.round}. Найдена новая улика.`);
       else if (g.phase === 'turns' && g.turn && g.turn.speakerId === this.me.id) toast('Ваше слово.');
       else if (g.phase === 'accuse' && g.accuse && g.accuse.speakerId === this.me.id) toast('Ваша обвинительная минута.');
       else if (g.phase === 'vote') toast(g.vote && g.vote.runoff ? 'Ничья. Переголосование.' : 'Голосование.');
@@ -128,7 +146,7 @@
       const g = this.g, me = this.me;
       const tab = this.root.dataset.tab;
       if (tab === 'journal') this.unread = false;
-      const needs = (me.can.reveal.length > 0) || (me.can.vote && !(g.vote && g.vote.my)) || (g.phase === 'turns' && g.turn && g.turn.speakerId === me.id) || (g.phase === 'accuse' && g.accuse && g.accuse.speakerId === me.id);
+      const needs = (me.can.reveal.length > 0) || (me.can.vote && !(g.vote && g.vote.my)) || (me.can.molevote && !(g.small.moleVote && g.small.moleVote.my)) || (g.phase === 'turns' && g.turn && g.turn.speakerId === me.id) || (g.phase === 'accuse' && g.accuse && g.accuse.speakerId === me.id);
       const dots = this.root.querySelectorAll('#gNav .dot');
       dots[0].hidden = !(needs && tab !== 'stage'); dots[1].hidden = !(this.unread && tab !== 'journal');
       this.root.querySelectorAll('#gNav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -140,12 +158,13 @@
       const fin = g.finale;
       const crim = g.criminals ? ` · преступников на свободе: ${g.criminals.left} из ${g.criminals.total}` : '';
       const eyebrow0 = g.phase === 'brief' ? 'Вводная' : g.phase === 'verdict' || g.phase === 'accomplice' ? 'Дело закрывается'
-        : g.phase === 'turns' && g.turn ? `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`} · рассказ ${g.turn.idx + 1} из ${g.turn.total}`
+        : g.phase === 'mole' ? 'Дело закрыто'
+        : g.phase === 'turns' && g.turn ? `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`} · ${this.small ? 'ход' : 'рассказ'} ${g.turn.idx + 1} из ${g.turn.total}`
         : g.phase === 'accuse' && g.accuse && !g.accuse.done ? `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`} · обвинение ${g.accuse.idx + 1} из ${g.accuse.total}`
           : `${fin ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`}`;
       const eyebrow = g.phase === 'brief' || g.phase === 'verdict' ? eyebrow0 : eyebrow0 + crim;
       const title = {
-        brief: esc(g.case.title), clue: g.finale ? 'Последние <em>улики</em>' : 'Новая <em>улика</em>', turns: 'Круг <em>рассказов</em>', talk: '<em>Обсуждение</em>', accuse: 'Обвинительная <em>минута</em>',
+        brief: esc(g.case.title), clue: g.finale ? 'Последние <em>улики</em>' : this.small && g.round === 1 ? 'Первые <em>улики</em>' : 'Новая <em>улика</em>', turns: this.small ? 'Круг <em>показаний</em>' : 'Круг <em>рассказов</em>', mole: 'Кто <em>крот</em>?', talk: '<em>Обсуждение</em>', accuse: 'Обвинительная <em>минута</em>',
         vote: g.vote && g.vote.runoff ? '<em>Переголосование</em>' : '<em>Голосование</em>', result: 'Итог <em>раунда</em>', poll: 'Тайный <em>опрос</em>',
         defense: 'Слово <em>защиты</em>', final: 'Финальное <em>голосование</em>', verdict: '<em>Приговор</em>', accomplice: 'Последний <em>шанс</em>',
       }[g.phase] || '';
@@ -159,7 +178,19 @@
       setHtml(this.root.querySelector('#gTop'), `
         <div class="g-title"><p class="eyebrow">${esc(eyebrow)}${g.paused ? ' · пауза' : ''}</p><h2>${title}</h2></div>
         <div class="pips" aria-label="Раунды">${pips}</div>
-        <div class="g-right">${eye}${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.clock && g.clock.state !== 'run' ? 'Часы стоят: отсчёт запускает ведущий' : g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
+        <div class="g-right">${this.teamRow()}${eye}${dc}<button class="leave-btn" data-a="quit" title="Выйти из игры" aria-label="Выйти из игры">×</button><div class="timer" id="gTimer" title="${g.clock && g.clock.state !== 'run' ? 'Часы стоят: отсчёт запускает ведущий' : g.manual ? 'Ориентир по времени: ведущий листает сам' : 'Время фазы'}"><svg viewBox="0 0 56 56"><circle class="bg" cx="28" cy="28" r="24"/><circle class="fg" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg><b>0:00</b></div></div>`);
+    },
+
+    /* Малый состав: люди за столом маленьким рядом в шапке. Видно, чей ход и кто уже проголосовал. */
+    teamRow() {
+      if (!this.small) return '';
+      const g = this.g;
+      const voting = (!!g.vote && ['vote', 'poll', 'final'].includes(g.phase)) || g.phase === 'mole';
+      return `<div class="team-row" aria-label="За столом">${g.small.team.map((p) => {
+        const c = this.conn[p.id], off = c && !c.connected && !c.isBot;
+        const st = p.speaking ? 'говорит' : voting && p.voted ? 'голос отдан' : p.host ? 'ведущий' : '';
+        return `<span class="tm ${p.speaking ? 'speaking' : ''} ${voting && p.voted ? 'voted' : ''} ${p.id === this.me.id ? 'me' : ''}" title="${esc(p.name)}${p.id === this.me.id ? ' (вы)' : ''}${st ? `: ${st}` : ''}">${this.av(p.id, off ? 'off sm' : 'sm')}${p.host ? '<i class="crown-dot" aria-hidden="true"></i>' : ''}</span>`;
+      }).join('')}</div>`;
     },
 
     tickClocks() {
@@ -197,7 +228,7 @@
       const chips = g.players.map((p, i) => {
         const isMe = p.id === me.id, out = p.status === 'out';
         let st = '', cls = '';
-        if (out) st = '<span class="st">вне игры</span>';
+        if (out) st = `<span class="st">${p.npc ? 'задержан' : 'вне игры'}</span>`;
         else if (p.speaking || (g.phase === 'defense' && g.defense && g.defense.speaker === p.id)) { st = '<span class="st go">говорит</span>'; cls = 'speaking'; }
         else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.indexOf(p.id) >= 0 && (g.accuse.done || g.accuse.queue.indexOf(p.id) < g.accuse.idx)) st = '<span class="st ok">✓</span>';
         else if (g.phase === 'accuse' && g.accuse && g.accuse.queue.includes(p.id)) st = `<span class="st">${g.accuse.queue.indexOf(p.id) + 1}</span>`;
@@ -209,7 +240,7 @@
         const role = out && p.role === 'killer' ? '<span class="role">убийца</span>' : out && p.role === 'accomplice' ? '<span class="role" style="color:var(--amber)">сообщник</span>' : '';
         return `<button class="q-chip ${cls} ${isMe ? 'me' : ''} ${out ? 'out' : ''}" data-a="person" data-id="${esc(p.id)}" title="№${i + 1} ${esc(p.name)}: показать досье" data-pid="${esc(p.id)}">
           ${p.host ? '<span class="crown">ведущий</span>' : ''}${role}${avatar(p.name, i, off ? 'off' : '')}
-          <span class="nm">${esc(p.name)}${isMe ? ' (вы)' : ''}</span>${st || `<span class="st">${p.bot ? 'бот' : off ? 'нет связи' : p.auto ? 'авто' : ''}</span>`}</button>`;
+          <span class="nm">${esc(p.name)}${isMe ? ' (вы)' : ''}</span>${st || `<span class="st">${p.npc ? (p.revealed.profession ? esc(p.revealed.profession.text) : '') : p.bot ? 'бот' : off ? 'нет связи' : p.auto ? 'авто' : ''}</span>`}</button>`;
       }).join('');
       const q = this.root.querySelector('#gQueue');
       setHtml(q, chips);
@@ -235,7 +266,7 @@
     stageHtml() {
       const g = this.g, me = this.me;
       const meOut = me.status === 'out';
-      const nAct = g.players.filter((p) => p.status === 'active').length;
+      const nAct = this.people().filter((p) => this.small || p.status === 'active').length;
       const wait = (txt) => `<div class="wait"><span class="dots"><i></i><i></i><i></i></span>${esc(txt)}</div>`;
       const outNote = meOut ? '<p class="muted">Вы вне игры, но можете следить за партией.</p>' : '';
 
@@ -243,6 +274,12 @@
         const readyN = g.players.filter((p) => p.ready).length;
         return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>Игроки читают свои карточки</h3><p>Дело наверху. Роли и карточки откроются, когда дело закроют.</p></div>
           <div class="act-row"><span class="muted">Готовы: ${readyN} из ${g.players.length}</span></div>`;
+      }
+      if (g.phase === 'brief' && this.small) {
+        const readyN = g.small.team.filter((p) => p.ready).length;
+        return `<div class="s-head"><p class="eyebrow">Вводная</p><h3>Прочитайте дело и свою роль</h3><p>Подозреваемые: шесть персонажей в ленте выше. Их карточки закрыты, по строке за ход их откроете вы сами.${g.small.mole ? ' Один из вас крот.' : ''}</p></div>
+          <div class="act-row"><button class="btn btn-primary" data-a="ready" ${me.ready ? 'disabled' : ''}>${me.ready ? 'Всё готово' : 'Роль прочитана'}</button><span class="muted">Готовы: ${readyN} из ${g.small.team.length}</span></div>
+          ${me.isHost ? '<div class="act-row recase"><span class="muted">Это дело уже играли?</span><button class="btn btn-sm btn-ghost" data-a="recase">Сменить дело</button></div>' : ''}`;
       }
       if (g.phase === 'brief') {
         const killer = me.role === 'killer';
@@ -262,9 +299,10 @@
         const fresh = g.clues.filter((c) => c.round === g.round);
         return `<div class="s-head"><p class="eyebrow">${g.finale ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`}</p><h3>${g.finale ? 'Последние улики' : 'Новая улика'}</h3></div>
           <div style="display:grid;gap:12px;justify-items:start">${fresh.map((c) => `<article class="paper clue big new"><span class="no">Улика ${g.clues.indexOf(c) + 1}</span><p>${esc(c.text)}</p><span class="tagname">${esc(c.label)}</span></article>`).join('')}</div>
-          <div class="talk-hint">${icon('mic')}<span>Кому это подходит? Выскажите версии вслух, потом пойдёт круг рассказов.</span></div>`;
+          <div class="talk-hint">${icon('mic')}<span>${this.small ? `Кому из персонажей это подходит? Выскажите версии вслух, потом каждый откроет ${g.small.team.length < 4 ? 'по две строки' : 'по строке'}.` : 'Кому это подходит? Выскажите версии вслух, потом пойдёт круг рассказов.'}</span></div>`;
       }
 
+      if (g.phase === 'turns' && g.turn && this.small) return this.smallTurn();
       if (g.phase === 'turns' && g.turn) {
         const sp = this.byId[g.turn.speakerId], mine = sp.id === me.id;
         // Что говорящий раскрыл в свой ход
@@ -296,28 +334,28 @@
           return `<div class="s-head"><p class="eyebrow">Обвинения окончены</p><h3>Все высказались</h3><p>Ведущий начнёт голосование.</p></div>${wait('Ждём ведущего')}${outNote}`;
         }
         const sp = this.byId[a.speakerId], mine = sp.id === me.id;
-        const hint = mine ? 'У вас минута. Скажите, кого подозреваете и почему: улики, алиби, нестыковки в рассказах.'
+        const hint = mine ? (this.small ? 'У вас минута. Скажите, кого из персонажей подозреваете и почему: улики, алиби, ваши «Обыски».' : 'У вас минута. Скажите, кого подозреваете и почему: улики, алиби, нестыковки в рассказах.')
           : `Слушайте ${sp.name}. Минута на то, кого подозревают и почему.`;
-        return `<div class="speaker">${avatar(sp.name, this.idx[sp.id], 'lg')}<div><p class="eyebrow">${mine ? 'Ваша обвинительная минута' : 'Обвиняет'}</p><h3>${esc(sp.name)}</h3></div></div>
+        return `<div class="speaker">${this.av(sp.id, 'lg')}<div><p class="eyebrow">${mine ? 'Ваша обвинительная минута' : 'Обвиняет'}</p><h3>${esc(sp.name)}</h3></div></div>
           <div class="talk-hint">${icon('mic')}<span>${esc(hint)}</span></div>
           ${mine && me.can.endaccuse ? '<div class="act-row"><button class="btn btn-primary" data-a="endaccuse">Закончить минуту</button><span class="muted">Слово перейдёт следующему.</span></div>' : ''}${g.manual ? '<p class="muted">Следующего включает ведущий.</p>' : ''}${outNote}`;
       }
 
       if (g.phase === 'talk') {
         const usable = me.cards.some((c) => !c.used && !PASSIVE.includes(c.type));
-        const readyN = g.players.filter((p) => p.status === 'active' && p.ready).length;
+        const readyN = this.people().filter((p) => (this.small || p.status === 'active') && p.ready).length;
         const passive = !usable && me.cards.find((c) => !c.used && PASSIVE.includes(c.type));
         const cardBtn = passive ? `<span class="muted card-note">Ваша карта «${esc(passive.name)}» сработает сама, когда вас соберутся исключить.</span>` : `<button class="btn" data-a="card" ${usable && me.can.card ? '' : 'disabled'}>${me.cards.every((c) => c.used) ? 'Карты сыграны' : 'Карта действия'}</button>`;
         const acts = !meOut && !this.watch ? `<div class="act-row">${cardBtn}
           ${g.manual ? '<span class="muted">К обвинениям переходит ведущий.</span>' : `<button class="btn ${me.ready ? '' : 'btn-primary'}" data-a="ready">${me.ready ? 'Отменить готовность' : 'Готово к обвинениям'}</button><span class="muted">Готовы: ${readyN} из ${nAct}</span>`}</div>` : '';
-        return `<div class="s-head"><p class="eyebrow">Свободное обсуждение</p><h3>${g.gang ? 'Кто здесь убийца и сообщник?' : 'Кто из нас убийца?'}</h3><p>Сверяйте алиби, ищите совпадения с уликами, спрашивайте друг друга.</p></div>${acts}${outNote}
+        return `<div class="s-head"><p class="eyebrow">Свободное обсуждение</p><h3>${this.small ? 'Кто из них убийца и сообщник?' : g.gang ? 'Кто здесь убийца и сообщник?' : 'Кто из нас убийца?'}</h3><p>${this.small ? 'Сверяйте открытые строки с уликами, играйте карты, спорьте. Помните, что кто-то из вас может врать.' : 'Сверяйте алиби, ищите совпадения с уликами, спрашивайте друг друга.'}</p></div>${acts}${outNote}
           <div class="dossiers">${g.players.map((p) => this.dossier(p)).join('')}</div>`;
       }
 
       if (['vote', 'poll', 'final'].includes(g.phase) && g.vote) {
         const v = g.vote, final = g.phase === 'final';
-        const title = g.phase === 'poll' ? (g.gang ? 'Кто убийца и сообщник?' : 'Кто убийца?') : final ? 'Кого исключить окончательно?' : v.runoff ? 'Ничья. Кого исключаем?' : 'Кого исключаем?';
-        const sub = g.phase === 'poll' ? (g.gang ? 'Опрос тайный. Трое с наибольшим числом голосов получат слово защиты.' : 'Опрос тайный. Двое с наибольшим числом голосов получат слово защиты.') : final ? (g.gang && g.players.filter((p) => p.status === 'active').length > 3 ? `Исключённого не вернуть. Осталось исключений: ${g.kicksLeft}, а вместе с ними решится исход дела.` : g.gang ? 'Решающее голосование. Исключённого не вернуть, и сразу после него решится исход дела.' : 'Последний выбор. Исключённого не вернуть, а вместе с ним решится исход дела.') : v.runoff ? 'Голоса разделились. Выбор только между теми, кто набрал поровну.' : 'Исключить придётся одного. Голос можно поменять до подведения итога.';
+        const title = this.small ? (v.runoff ? 'Ничья. Кого задерживаем?' : 'Кого задерживаем?') : g.phase === 'poll' ? (g.gang ? 'Кто убийца и сообщник?' : 'Кто убийца?') : final ? 'Кого исключить окончательно?' : v.runoff ? 'Ничья. Кого исключаем?' : 'Кого исключаем?';
+        const sub = this.small ? (v.runoff ? 'Голоса разделились. Выбор только между теми, кто набрал поровну.' : `Задержать придётся одного. ${g.small.wrongOut ? 'Ещё один невиновный за решёткой, и преступники уйдут.' : 'Двое невиновных за решёткой, и преступники уйдут.'}`) : g.phase === 'poll' ? (g.gang ? 'Опрос тайный. Трое с наибольшим числом голосов получат слово защиты.' : 'Опрос тайный. Двое с наибольшим числом голосов получат слово защиты.') : final ? (g.gang && g.players.filter((p) => p.status === 'active').length > 3 ? `Исключённого не вернуть. Осталось исключений: ${g.kicksLeft}, а вместе с ними решится исход дела.` : g.gang ? 'Решающее голосование. Исключённого не вернуть, и сразу после него решится исход дела.' : 'Последний выбор. Исключённого не вернуть, а вместе с ним решится исход дела.') : v.runoff ? 'Голоса разделились. Выбор только между теми, кто набрал поровну.' : 'Исключить придётся одного. Голос можно поменять до подведения итога.';
         const cands = v.candidates.filter((id) => id !== me.id);
         const can = me.can.vote;
         const grid = can ? `<div class="vote-grid">${cands.map((id) => {
@@ -325,8 +363,8 @@
           const hits = p.tags.filter((t) => g.clues.some((c) => c.tag === t.key)).map((t) => t.label);
           return `<button class="vote-btn ${final ? 'big' : ''} ${v.my === id ? 'on' : ''}" data-a="vote" data-id="${esc(id)}">${avatar(p.name, this.idx[id])}<span><b>${esc(p.name)}</b>${hits.length ? `<small>совпало с уликой: ${esc(hits.join(', '))}</small>` : ''}</span></button>`;
         }).join('')}</div>` : wait(meOut || this.watch ? 'Голосуют те, кто ещё в игре' : 'Голоса принимаются');
-        const vp = g.players.filter((p) => p.status === 'active').map((p) => `<span title="${esc(p.name)}">${avatar(p.name, this.idx[p.id], p.voted ? 'on' : '')}</span>`).join('');
-        return `<div class="s-head"><p class="eyebrow">${g.phase === 'poll' ? 'Финал · опрос' : final ? 'Финал' : `Раунд ${g.round}`}</p><h3>${title}</h3><p>${sub}</p></div>${grid}
+        const vp = this.people().filter((p) => this.small || p.status === 'active').map((p) => `<span title="${esc(p.name)}">${this.av(p.id, p.voted ? 'on' : '')}</span>`).join('');
+        return `<div class="s-head"><p class="eyebrow">${g.phase === 'poll' ? 'Финал · опрос' : final ? 'Финал' : `Раунд ${g.round}`}</p><h3>${title}</h3><p>${esc(sub)}</p></div>${grid}
           <div class="vp"><span>Проголосовали ${v.voted.length} из ${nAct}:</span>${vp}</div>${v.my ? `<p class="muted">Ваш голос: ${esc(this.byId[v.my].name)}.</p>` : can ? `<p class="muted">${v.candidates.includes(me.id) ? 'Не выберете, и голос уйдёт против вас.' : 'Не выберете, и голос пропадёт.'}</p>` : ''}`;
       }
 
@@ -338,13 +376,14 @@
         const hidden = g.hints !== 'light';
         const role = hidden ? 'Роль скрыта' : p.role === 'accomplice' ? 'Сообщник' : p.role === 'killer' ? 'Убийца' : 'Невиновный';
         const left = g.criminals ? g.criminals.left : null;
-        const after = hidden ? 'Кем был этот игрок, станет известно в конце дела.' : p.role === 'killer' ? 'Это был убийца, но сообщник ещё среди вас.' : p.role === 'accomplice' ? (g.gang ? 'Это был сообщник, но убийца остаётся среди вас.' : 'Это был сообщник убийцы, но сам убийца остаётся среди вас.') : (g.gang ? (left === 1 ? 'Это был невиновный. Один из преступников всё ещё среди вас.' : 'Это был невиновный. Оба преступника всё ещё среди вас.') : 'Это был невиновный. Убийца всё ещё среди вас.');
+        const after = this.small ? (hidden ? 'Кто это был, станет известно в конце дела.' : p.role === 'killer' ? 'Это убийца. Сообщник ещё на свободе.' : p.role === 'accomplice' ? 'Это сообщник. Убийца ещё на свободе.' : 'Это невиновный. Ещё одна такая ошибка, и преступники уйдут.')
+          : hidden ? 'Кем был этот игрок, станет известно в конце дела.' : p.role === 'killer' ? 'Это был убийца, но сообщник ещё среди вас.' : p.role === 'accomplice' ? (g.gang ? 'Это был сообщник, но убийца остаётся среди вас.' : 'Это был сообщник убийцы, но сам убийца остаётся среди вас.') : (g.gang ? (left === 1 ? 'Это был невиновный. Один из преступников всё ещё среди вас.' : 'Это был невиновный. Оба преступника всё ещё среди вас.') : 'Это был невиновный. Убийца всё ещё среди вас.');
         const max = Math.max(1, ...Object.values(k.count));
         const rows = Object.keys(k.count).sort((a, b) => k.count[b] - k.count[a]).map((id) => {
           return `<div class="tr ${id === k.id ? 'top' : ''}"><span>${esc(this.byId[id].name)}</span><span class="bar"><i style="width:${Math.round(100 * k.count[id] / max)}%"></i></span><b>${k.count[id]}</b></div>`;
         }).join('');
-        return `<div class="s-head"><p class="eyebrow">Раунд ${k.round} из ${g.rounds}</p><h3>${esc(p.name)} вне игры</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}</p></div>
-          <div class="kick-card"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">${hidden ? 'Вне игры' : 'Роль раскрыта'}</span><h3>${esc(p.name)}</h3><span class="stamp">${role}</span>
+        return `<div class="s-head"><p class="eyebrow">Раунд ${k.round} из ${g.rounds}</p><h3>${esc(p.name)} ${this.small ? 'за решёткой' : 'вне игры'}</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}</p></div>
+          <div class="kick-card"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">${hidden ? (this.small ? 'Задержан' : 'Вне игры') : 'Роль раскрыта'}</span><h3>${esc(p.name)}</h3><span class="stamp">${role}</span>
             ${p.revealed.profession ? `<p style="margin-top:8px"><b>${esc(p.revealed.profession.text)}</b></p>` : ''}${p.revealed.motive ? `<p style="font-size:14px;margin-top:6px">Мотив: ${esc(p.revealed.motive.text)}</p>` : ''}</div></div></div>
             <div class="tally">${rows}</div></div>
           <div class="talk-hint">${icon('mic')}<span>Голосование анонимное. Обсудите итог голосом: кто и почему мог голосовать против.</span></div>`;
@@ -361,10 +400,19 @@
       if (g.phase === 'verdict' && g.verdict) {
         const v = g.verdict, kp = this.byId[v.kickedId];
         const role = kp.role === 'killer' ? 'Убийца' : kp.role === 'accomplice' ? 'Сообщник' : 'Невиновный';
-        const text = v.reason === 'caught' ? (g.gang ? 'Убийца и сообщник исключены. Невиновные победили.' : 'Убийца исключён. Невиновные победили.') : v.reason === 'outnumbered' ? 'Преступников осталось столько же, сколько невиновных. Они победили.' : g.gang ? 'Исключения закончились, а кто-то из преступников остался на свободе.' : 'Исключили невиновного. Убийца остаётся на свободе.';
+        const text = this.small ? (v.reason === 'caught' ? 'Убийца и сообщник за решёткой. Дело раскрыто.' : 'За решёткой двое невиновных. Преступники ушли.') : v.reason === 'caught' ? (g.gang ? 'Убийца и сообщник исключены. Невиновные победили.' : 'Убийца исключён. Невиновные победили.') : v.reason === 'outnumbered' ? 'Преступников осталось столько же, сколько невиновных. Они победили.' : g.gang ? 'Исключения закончились, а кто-то из преступников остался на свободе.' : 'Исключили невиновного. Убийца остаётся на свободе.';
         return `<div class="verdict"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">Исключён</span><h3>${esc(kp.name)}</h3><span class="stamp">${role}</span>
           ${kp.revealed.profession ? `<p style="margin-top:8px"><b>${esc(kp.revealed.profession.text)}</b></p>` : ''}${kp.revealed.motive ? `<p style="font-size:14px;margin-top:6px">Мотив: ${esc(kp.revealed.motive.text)}</p>` : ''}</div></div></div>
           <div class="res">${esc(text)}</div><span class="stamp">${v.winner === 'innocent' ? 'Дело раскрыто' : g.gang ? 'Преступники на свободе' : 'Убийца на свободе'}</span></div>`;
+      }
+
+      if (g.phase === 'mole' && this.small) {
+        const mv = g.small.moleVote || { voted: [], my: null };
+        const others = g.small.team.filter((p) => p.id !== me.id);
+        const grid = me.can.molevote ? `<div class="vote-grid">${others.map((p) => `<button class="vote-btn ${mv.my === p.id ? 'on' : ''}" data-a="molevote" data-id="${esc(p.id)}">${this.av(p.id)}<span><b>${esc(p.name)}</b></span></button>`).join('')}</div>` : wait('Игроки называют крота');
+        const vp = g.small.team.map((p) => `<span title="${esc(p.name)}">${this.av(p.id, mv.voted.includes(p.id) ? 'on' : '')}</span>`).join('');
+        return `<div class="s-head"><p class="eyebrow">Дело закрыто</p><h3>Кто из вас крот?</h3><p>${me.role === 'mole' ? 'Вы крот. Голосуйте вместе со всеми, чтобы не выдать себя.' : 'Назовите одного. Крота вычислят, если на нём больше всего голосов.'}</p></div>${grid}
+          <div class="vp"><span>Проголосовали ${mv.voted.length} из ${g.small.team.length}:</span>${vp}</div>${mv.my ? `<p class="muted">Ваш выбор: ${esc(this.byId[mv.my].name)}.</p>` : ''}`;
       }
 
       if (g.phase === 'accomplice') {
@@ -377,6 +425,27 @@
         return `<div class="s-head"><p class="eyebrow">Последний шанс</p><h3>Слово сообщника</h3></div>${wait('Сообщник решает, как поступить')}`;
       }
       return '';
+    },
+
+    /* Малый состав, круг показаний: в свой ход человек открывает одну строку любого персонажа на свободе. */
+    smallTurn() {
+      const g = this.g, me = this.me;
+      const sp = this.byId[g.turn.speakerId], mine = sp.id === me.id;
+      const wait = (txt) => `<div class="wait"><span class="dots"><i></i><i></i><i></i></span>${esc(txt)}</div>`;
+      let ti = -1; g.feed.forEach((f, i) => { if (f.kind === 'turn' && f.who === sp.id) ti = i; });
+      const rev = ti >= 0 ? g.feed.slice(ti + 1).filter((f) => f.kind === 'reveal').slice(-1)[0] : null;
+      const said = rev && this.byId[rev.who] ? `<div class="paper said enter"><span class="label">${esc(this.byId[rev.who].name)} · ${esc(T[rev.trait] || '')}</span><p>${esc((this.byId[rev.who].revealed[rev.trait] || {}).text || '')}</p></div>` : '';
+      let body;
+      if (mine && me.can.reveal.length) {
+        body = `<div style="display:grid;gap:10px"><p><b>Выберите строку, которую откроете при всех.</b> Из профессии и особенности у персонажа при всех открывается только одно, второе покажут карты.</p>
+          <div class="npc-pick">${me.can.reveal.map((o) => `<div class="np">${this.av(o.id, 'sm')}<b>${esc(this.byId[o.id].name)}</b><div class="np-t">${o.traits.map((t) => `<button class="btn btn-sm" data-a="reveal" data-id="${esc(o.id)}" data-trait="${t}">${esc(T[t])}</button>`).join('')}</div></div>`).join('')}</div></div>`;
+      } else if (mine) {
+        body = `${said}<div class="talk-hint">${icon('mic')}<span>Скажите вслух, что это меняет в деле.</span></div>
+          <div class="act-row"><button class="btn btn-primary" data-a="endturn">Ход закончен</button><span class="muted">Следующий откроет свою строку.</span></div>`;
+      } else {
+        body = `${said || wait(`${sp.name} выбирает, чью строку открыть`)}<div class="talk-hint">${icon('mic')}<span>${me.role === 'mole' ? 'Следите, к кому идёт следствие, и вовремя уводите его в сторону.' : 'Сверяйте с уликами. Обсудить можно будет после круга.'}</span></div>`;
+      }
+      return `<div class="speaker">${this.av(sp.id, 'lg')}<div><p class="eyebrow">${mine ? 'Ваш ход' : 'Ход'}</p><h3>${esc(sp.name)}</h3></div></div>${body}`;
     },
 
     /* Досье игрока: что открыто и что выяснено ордером */
@@ -395,12 +464,14 @@
     /* ---------- Улики ---------- */
     renderClues() {
       const g = this.g;
-      const slots = Math.max(g.rounds, g.clues.length);
+      // В малом составе улик четыре на три раунда: две находят сразу.
+      const slots = this.small ? 4 : Math.max(g.rounds, g.clues.length);
+      const roundOf = (i) => (this.small ? Math.max(1, i) : i + 1);
       if (this.seenClues === null) this.seenClues = new Set(g.clues.map((x) => x.id));
       const cl = [];
       for (let i = 0; i < slots; i++) {
         const k = g.clues[i];
-        if (!k) { cl.push(`<div class="clue locked">Улика ${i + 1}<br>${i + 1 <= g.rounds ? `раунд ${i + 1}` : ''}</div>`); continue; }
+        if (!k) { cl.push(`<div class="clue locked">Улика ${i + 1}<br>${roundOf(i) <= g.rounds ? `раунд ${roundOf(i)}` : ''}</div>`); continue; }
         const isNew = !this.seenClues.has(k.id) && g.phase !== 'clue'; this.seenClues.add(k.id);
         cl.push(`<article class="paper clue ${isNew ? 'new' : ''}"><span class="no">Улика ${i + 1}${k.mine ? ' · подменена вами' : k.planted ? ' · подменена' : k.checked === 'fake' ? ' · экспертиза: ложная' : k.checked === 'real' ? ' · экспертиза: правдивая' : ''}</span><p>${esc(k.text)}</p><span class="tagname">${esc(k.label)}</span></article>`);
       }
@@ -414,6 +485,7 @@
           <div class="my-body"><p class="muted" style="font-size:13px">Вы видите то же, что все за столом. Роли, карточки и тайные ходы откроются, когда дело закроют. Сесть за стол можно будет перед следующим делом.</p></div>`);
         return;
       }
+      if (this.small) return this.renderRole();
       const g = this.g, me = this.me, c = me.card;
       const r = ROLE[me.role];
       let hint = g.gang ? r.gang : r.hint;
@@ -440,6 +512,28 @@
       if (setHtml(el, html)) el.open = this.cardOpen !== false;
     },
 
+    /* Малый состав: вместо своей карточки карточка роли и карты на руках. Крот видит преступников и их улики. */
+    renderRole() {
+      const g = this.g, me = this.me, r = ROLE[me.role] || ROLE.detective;
+      const hint = r.hint + (me.role === 'detective' && g.small.mole ? r.mole : '');
+      const nm = (id) => esc((this.byId[id] || {}).name || '?');
+      const mi = me.moleInfo;
+      const crim = mi ? `<div class="c-row"><span class="label"><span>Преступники</span></span><span>Убийца: <b>${nm(mi.killerId)}</b></span><span>Сообщник: <b>${nm(mi.accompliceId)}</b></span></div>
+        <div class="c-row"><span class="label"><span>Улики по делу</span></span>${mi.clues.map((k) => `<span class="${k.revealed && !k.replaced ? 'truth' : ''}">${esc(k.label)} · ${k.fits.map(nm).join(' и ')}${k.replaced ? ' · подменена' : k.revealed ? ' · найдена' : ' · пока скрыта'}</span>`).join('')}</div>` : '';
+      const cardState = (k) => {
+        if (k.used) return '';
+        if (g.phase === 'talk' && me.can.card) return `<button class="btn btn-sm btn-primary" data-a="card" data-type="${esc(k.type)}">Сыграть</button>`;
+        return `<p class="cstate">${g.phase === 'talk' ? 'Подождите, идёт другое действие.' : 'Играется в обсуждении.'}</p>`;
+      };
+      const cards = me.cards.map((k) => `<div class="cmini ${k.used ? 'used' : ''}"><h4>${esc(k.name)}${k.used ? ' · сыграна' : ''}</h4><p>${esc(k.desc)}</p>${cardState(k)}</div>`).join('');
+      const notes = me.notes.length ? `<div class="c-row"><span class="label"><span>Что вы узнали</span></span>${me.notes.map((n) => `<span>${n.targetId ? `${nm(n.targetId)}: ` : ''}${n.label ? `${esc(n.label)}. ` : ''}${esc(n.text)}${n.extra ? ` ${esc(n.extra)}` : ''}</span>`).join('')}</div>` : '';
+      const el = this.root.querySelector('#pCard');
+      const html = `<summary><h2>Моя роль</h2><span class="role-banner ${r.cls}" style="padding:4px 9px">${r.name}</span><span class="chev">▾</span></summary>
+        <div class="my-body"><p class="muted" style="font-size:13px">${esc(hint)}</p>${crim}${notes}
+          <div class="c-row"><span class="label"><span>${me.cards.length > 1 ? 'Карты действий' : 'Карта действия'}</span></span><div class="cards-mini">${cards}</div></div></div>`;
+      if (setHtml(el, html)) el.open = this.cardOpen !== false;
+    },
+
     /* Часы ведущего: старт или пауза, заново, +30 секунд. */
     clockButtons(g) {
       const c = g.clock;
@@ -455,16 +549,19 @@
     renderHost(st) {
       const g = this.g, me = this.me, host = this.root.querySelector('#gHost');
       if (['verdict', 'ended'].includes(g.phase)) { setHtml(host, ''); host.className = 'host-bar'; return; }
+      const sm = this.small ? { clue: ['К показаниям', g.small.team.length < 4 ? 'Каждый откроет по две строки персонажей' : 'Каждый откроет по строке персонажа'], turns: ['Передать ход дальше', 'Когда строка открыта и обсуждена'] } : {};
       const hostP = this.byId[g.hostId];
-      const nAct = g.players.filter((p) => p.status === 'active').length;
+      const ppl = this.people().filter((p) => this.small || p.status === 'active');
+      const nAct = ppl.length;
       let status = '';
-      if (g.phase === 'brief') status = `Готовы: ${g.players.filter((p) => p.ready).length} из ${g.players.length}`;
-      else if (g.phase === 'talk' && !g.manual) status = `Готовы к обвинениям: ${g.players.filter((p) => p.status === 'active' && p.ready).length} из ${nAct}`;
+      if (g.phase === 'brief') status = `Готовы: ${this.people().filter((p) => p.ready).length} из ${this.people().length}`;
+      else if (g.phase === 'talk' && !g.manual) status = `Готовы к обвинениям: ${ppl.filter((p) => p.ready).length} из ${nAct}`;
+      else if (g.phase === 'mole' && g.small.moleVote) status = `Назвали крота: ${g.small.moleVote.voted.length} из ${nAct}`;
       else if (g.vote && ['vote', 'poll', 'final'].includes(g.phase)) status = `Проголосовали: ${g.vote.voted.length} из ${nAct}`;
       else if (g.phase === 'turns' && g.turn) status = `Слово: ${this.byId[g.turn.speakerId].name}`;
       else if (g.phase === 'accuse' && g.accuse) status = g.accuse.done ? 'Все высказались' : `Обвиняет: ${this.byId[g.accuse.speakerId].name}`;
       if (me.isHost) {
-        const [label, sub] = HOST_BTN[g.phase] || ['Дальше', ''];
+        const [label, sub] = sm[g.phase] || HOST_BTN[g.phase] || ['Дальше', ''];
         let next = label;
         if (g.phase === 'turns' && g.turn && g.turn.idx + 1 >= g.turn.total) next = 'К обсуждению';
         if (g.phase === 'accuse' && g.accuse) next = g.accuse.done || g.accuse.idx + 1 >= g.accuse.total ? (g.accuse.done ? 'К голосованию' : 'Завершить обвинения') : 'Следующий';
@@ -578,7 +675,8 @@
       if (!g) return;
       if (a === 'tab') { this.root.dataset.tab = b.dataset.tab; if (b.dataset.tab === 'journal') { this.unread = false; const l = this.root.querySelector('.j-list'); l.scrollTop = l.scrollHeight; } this.renderNav(); return; }
       if (a === 'person') return this.popover(b.dataset.id);
-      if (a === 'reveal') return this.act('reveal', { trait: b.dataset.trait });
+      if (a === 'reveal') return this.act('reveal', { trait: b.dataset.trait, target: b.dataset.id });
+      if (a === 'molevote') return this.act('molevote', { target: b.dataset.id });
       if (a === 'alibi') return this.act('alibi', { loc: b.dataset.loc });
       if (a === 'ready') return this.act('ready');
       if (a === 'endturn') return this.act('endturn', { step: g.step });
@@ -664,7 +762,7 @@
       }
       if (type === 'swap') {
         ids = (me.swapTargets || []).filter((id) => id !== me.id);
-        if (!ids.length) return toast('Подменять уже нечего: все улики найдены.', 'err');
+        if (!ids.length) return toast(this.small && this.g.round < 2 ? '«Подмену улики» можно сыграть со второго раунда.' : 'Подменять уже нечего: все улики найдены.', 'err');
         const target = await this.pickPlayer('На кого навести улику?', 'Улика, которую найдут следующей, поменяется и укажет на этого игрока. Её откроют в начале следующего раунда, как обычную, и никто не узнает, что это вы.', ids);
         if (target) this.act('card', { type, target });
         return;
@@ -684,7 +782,7 @@
       const target = await this.pickPlayer(type === 'warrant' ? 'Кого обыскать?' : 'С кого потребовать показания?', 'Результат ' + (type === 'warrant' ? 'увидите только вы.' : 'увидят все.'), ids);
       if (!target) return;
       const tp = this.byId[target];
-      const pool = type === 'warrant' ? Content.SEARCHABLE_TRAITS : Content.ASKABLE_TRAITS;
+      const pool = type === 'warrant' && !this.small ? Content.SEARCHABLE_TRAITS : Content.ASKABLE_TRAITS;
       const traits = pool.filter((t) => !tp.revealed[t]);
       if (!traits.length) return toast('У этого игрока уже всё раскрыто.', 'err');
       const trait = await UI.choose({ title: 'Какой пункт?', items: traits.map((t) => ({ id: t, title: T[t] })) });

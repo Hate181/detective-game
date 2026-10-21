@@ -113,7 +113,7 @@
         const code = window.DetectiveHub.normalizeCode(p.code);
         if (!hub.rooms.has(code)) {
           // Комнаты по коду в демо нет, поэтому «ведущий» появляется сам.
-          const room = { code, createdAt: Date.now(), lastActive: Date.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main', settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false };
+          const room = { code, createdAt: Date.now(), lastActive: Date.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main', settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', table: 'full', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false };
           hub.rooms.set(code, room);
           const host = addBot(room); room.hostId = host.id;
           for (let i = 0; i < 4; i++) addBot(room);
@@ -123,6 +123,19 @@
       },
       'room:leave': () => { clearLater(); const r = hub.handle(token, 'room:leave', {}); emit('left', {}); return r; },
       'room:lobby': (p) => hub.handle(token, 'room:lobby', p),
+      // В демо соседи по комнате боты: под малый состав за столом остаётся трое (вы и два бота), под обычный снова шестеро.
+      'room:setting': (p) => {
+        const r = hub.handle(token, 'room:setting', p);
+        const room = hub.roomOf(token);
+        if (r.ok && p.key === 'table' && room && room.status === 'lobby') {
+          clearLater();
+          const want = p.value === 'small' ? 3 : 6;
+          room.players.filter((x) => x.isBot && x.id !== room.hostId).slice(Math.max(0, want - room.players.filter((x) => !x.isBot || x.id === room.hostId).length)).forEach((b) => { room.players.splice(room.players.indexOf(b), 1); });
+          if (room.players.length < want) arrivals(room, want - room.players.length, 300);
+          hub.notify(room);
+        }
+        return r;
+      },
       'admin:auth': () => { hub.setAdmin(token, true); return { ok: true }; },
     };
     return {

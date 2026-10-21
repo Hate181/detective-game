@@ -2,7 +2,8 @@
 (function () {
   const { esc, setHtml, fail } = UI;
   let photoAt = {};
-  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null ? null : i + 1, i == null ? null : photoAt[i]);
+  // Номер места только у тех, кто сидит за столом. Люди малого состава (индекс от 10) идут без номера.
+  const avatar = (name, i, cls = '') => UI.avatar(name, i, cls, i == null || i >= 10 ? null : i + 1, i == null ? null : photoAt[i]);
   const Screens = (window.Screens = window.Screens || {});
   const TABS = [['chrono', 'Хронология'], ['score', 'Очки'], ['awards', 'Награды'], ['votes', 'Голоса'], ['clues', 'Улики'], ['season', 'Сезон'], ['log', 'Журнал']];
 
@@ -10,7 +11,7 @@
   const rel = (t, base) => ((mins(t) - base + 720 + 1440) % 1440) - 720;
   const clock = (abs) => { const m = ((abs % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
   const roleName = (r) => (r === 'killer' ? 'убийца' : r === 'accomplice' ? 'сообщник' : 'невиновный');
-  const roleBadge = (r) => (r === 'killer' ? '<span class="badge red">убийца</span>' : r === 'accomplice' ? '<span class="badge yellow">сообщник</span>' : '');
+  const roleBadge = (r) => (r === 'killer' ? '<span class="badge red">убийца</span>' : r === 'accomplice' ? '<span class="badge yellow">сообщник</span>' : r === 'mole' ? '<span class="badge red">крот</span>' : '');
 
   Screens.end = {
     mount(root) {
@@ -53,8 +54,11 @@
       const R = g.results;
       const byId = {}, idx = {};
       g.players.forEach((p, i) => { byId[p.id] = p; idx[p.id] = i; });
+      // Малый состав: за столом персонажи, а очки у людей. Люди получают цвет без номера места.
+      if (g.small) g.small.team.forEach((p, i) => { byId[p.id] = p; idx[p.id] = 10 + i; });
       const photo = {}; (st.players || []).forEach((p) => { if (p.photo) photo[p.id] = p.photo; });
       photoAt = {}; g.players.forEach((p, i) => { if (photo[p.id]) photoAt[i] = photo[p.id]; });
+      if (g.small) g.small.team.forEach((p, i) => { if (photo[p.id]) photoAt[10 + i] = photo[p.id]; });
       this.byId = byId; this.idx = idx;
       const nm = (id) => (byId[id] ? byId[id].name : '?');
       // Зритель и тот, кто сел за стол после конца дела, в этой партии не играли: своего результата у них нет.
@@ -64,20 +68,24 @@
       const win = R.winner === 'innocent';
       const keptOut = new Set((R.kicks || []).map((k) => k.id));
       const free = [R.killerId, R.accompliceId].filter((id) => id && !keptOut.has(id));
-      const reasonText = R.gang
+      const reasonText = R.small
+        ? (R.reason === 'caught' ? `Убийца ${nm(R.killerId)} и сообщник ${nm(R.accompliceId)} за решёткой, последнего задержали в раунде ${g.verdict.round}.` : `За решёткой двое невиновных, а на свободе остались: ${free.map(nm).join(' и ')}.`)
+          + (R.moleId ? ` Крот: ${nm(R.moleId)}, ${R.mole && R.mole.caught ? 'его вычислили' : 'его так и не вычислили'}.` : '')
+        : R.gang
         ? (R.reason === 'caught' ? `Убийца ${nm(R.killerId)} и сообщник ${nm(R.accompliceId)} исключены, последнего из них исключили в раунде ${g.verdict.round}.` : R.reason === 'outnumbered' ? `Преступников осталось столько же, сколько невиновных, на свободе: ${free.map(nm).join(' и ')}.` : `Исключения закончились, а на свободе остались: ${free.map(nm).join(' и ')}.`)
         : R.reason === 'caught' ? `Убийца ${nm(R.killerId)} исключён в раунде ${g.verdict.round}.`
           : `Исключили ${nm(R.kickedId)}, но это не убийца. Убийца ${nm(R.killerId)} остаётся на свободе.`;
       const acc = R.gang ? '' : R.accompliceId ? (R.accompliceChoice ? (R.accompliceChoice.mode === 'target' ? `Сообщник: ${nm(R.accompliceId)}. Назван опасным: ${nm(R.accompliceChoice.target)}.` : `Сообщник: ${nm(R.accompliceId)}. Остался вне подозрений.`) : `Сообщник: ${nm(R.accompliceId)}.`) : '';
       setHtml(this.root.querySelector('#eHero'), `<div class="tape"></div>
         <div class="eh-top"><p class="eyebrow">${esc(g.case.title)} · ${R.minutes} мин</p><span class="stamp">Дело закрыто</span></div>
-        <h1 class="${win ? 'win-innocent' : 'win-killer'}">${win ? 'Невиновные победили' : R.gang ? (free.length > 1 ? 'Преступники на свободе' : free[0] === R.killerId ? 'Убийца на свободе' : 'Сообщник на свободе') : 'Убийца на свободе'}</h1>
+        <h1 class="${win ? 'win-innocent' : 'win-killer'}">${R.small ? (win ? 'Дело раскрыто' : 'Преступники ушли') : win ? 'Невиновные победили' : R.gang ? (free.length > 1 ? 'Преступники на свободе' : free[0] === R.killerId ? 'Убийца на свободе' : 'Сообщник на свободе') : 'Убийца на свободе'}</h1>
         <p style="max-width:60ch;color:#e0d0b6">${esc(reasonText)} ${esc(acc)}</p>
         <div class="who">
           <div>${avatar(nm(R.killerId), idx[R.killerId])}<span><span class="label">Убийца</span><br><b>${esc(nm(R.killerId))}</b></span></div>
           ${R.accompliceId ? `<div>${avatar(nm(R.accompliceId), idx[R.accompliceId])}<span><span class="label">Сообщник</span><br><b>${esc(nm(R.accompliceId))}</b></span></div>` : ''}
           <div><span class="label">Место и время</span><br><b>${esc(R.scene)}, ${esc(R.murderTime)}</b></div>
-          ${me ? `<div><span class="label">Ваш результат</span><br><b>${R.score[me.id]} очк. · ${myRank} место из ${g.players.length}</b></div>` : ''}
+          ${R.moleId ? `<div>${avatar(nm(R.moleId), idx[R.moleId])}<span><span class="label">Крот</span><br><b>${esc(nm(R.moleId))}</b></span></div>` : ''}
+          ${me ? `<div><span class="label">Ваш результат</span><br><b>${R.score[me.id]} очк. · ${myRank} место из ${R.rank.length}</b></div>` : ''}
         </div>
         <div class="e-share"><button class="btn" data-a="share">Картинка с итогами для чата</button></div>`);
 
@@ -138,11 +146,11 @@
         return `<div class="g-row"><div class="g-loc ${loc === R.scene ? 'scene' : ''}">${esc(loc)}</div><div class="g-track">${loc === R.scene ? `<span class="g-mark" style="left:${markX}%"></span>` : ''}${bars.join('') || '<span class="muted" style="font-size:12px;padding-left:8px">никого</span>'}</div></div>`;
       }).join('');
       const liars = R.chronology.map((c) => `<div class="liar ${c.role === 'killer' ? 'killer' : ''}">
-          <div class="l-top">${avatar(c.name, this.idx[c.id])}<b>${esc(c.name)}</b>${roleBadge(c.role)}${c.out ? '<span class="badge">вне игры</span>' : ''}</div>
+          <div class="l-top">${avatar(c.name, this.idx[c.id])}<b>${esc(c.name)}</b>${roleBadge(c.role)}${c.out ? `<span class="badge">${c.npc ? 'задержан' : 'вне игры'}</span>` : ''}</div>
           <div class="claim">Говорил: ${c.claim ? (c.lied ? `<s>«${esc(c.claim.loc)}»</s>` : `«${esc(c.claim.loc)}»`) : 'ничего'}</div>
           <div class="real">${c.lied ? `На самом деле: <b>«${esc(c.real.loc)}»</b>` : 'Алиби честное'}${c.witnesses.length ? `, рядом: ${esc(c.witnesses.join(', '))}` : ''}</div>
           <div class="sec"><b>Секрет:</b> ${esc(c.secret)}</div>
-          <div class="sec"><b>Цель:</b> ${esc(c.goal)} · ${c.goalDone ? '<span style="color:var(--green)">выполнена</span>' : 'не выполнена'}</div></div>`).join('');
+          ${c.npc ? '' : `<div class="sec"><b>Цель:</b> ${esc(c.goal)} · ${c.goalDone ? '<span style="color:var(--green)">выполнена</span>' : 'не выполнена'}</div>`}</div>`).join('');
       return `<div class="panel"><div class="panel-head"><h2>Где все были на самом деле</h2><span class="count">убийство в ${esc(R.murderTime)}</span></div>
         <div class="table-scroll"><div class="gantt" style="min-width:560px"><div class="g-axis"><span></span><div class="scale">${ticks}</div></div>${rows}</div></div>
         <div class="legend"><span>Сплошная полоса: где человек был.</span><span>Пунктир «ложь»: где он говорил, что был.</span><span style="color:var(--red)">Красная обводка: убийца.</span></div>
@@ -177,7 +185,7 @@
       const planted = {}; (R.plants || []).filter((p) => !p.overridden).forEach((p) => { planted[p.clueId] = p; });
       return `<div class="clues">${R.clues.map((c, i) => `<article class="paper clue"><span class="no">Улика ${i + 1}${c.planted ? ' · подменена' : ''}</span><p>${esc(c.text)}</p>
         <div class="fits"><span class="tagname">${esc(Content_label(c.tag))}</span><span>подходит: ${esc(c.fits.map(nm).join(', '))}</span></div>
-        ${c.planted && planted[c.id] ? `<div class="fits" style="margin-top:6px"><span>Подменил игрок ${esc(nm(planted[c.id].by))}, чтобы указать на игрока ${esc(nm(planted[c.id].targetId))}.${c.orig ? ` Настоящая улика: ${esc(c.orig.text)}` : ''}</span></div>` : ''}</article>`).join('')}</div>`;
+        ${c.planted && planted[c.id] ? `<div class="fits" style="margin-top:6px"><span>${planted[c.id].by ? `Подменил игрок ${esc(nm(planted[c.id].by))}, чтобы указать на ${esc(nm(planted[c.id].targetId))}.` : `Эту улику подменило само дело, чтобы указать на ${esc(nm(planted[c.id].targetId))}.`}${c.orig ? ` Настоящая улика: ${esc(c.orig.text)}` : ''}</span></div>` : ''}</article>`).join('')}</div>`;
     },
 
     seasonHtml() {

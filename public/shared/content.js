@@ -131,7 +131,24 @@
 
   const DURATIONS = {
     brief: 60, clue: 12, turn: 60, talk: 90, accuse: 60, vote: 45, result: 14, advocate: 15, lottery: 10,
-    poll: 40, defense: 40, final: 40, verdict: 9, accomplice: 30,
+    poll: 40, defense: 40, final: 40, verdict: 9, accomplice: 30, mole: 45,
+  };
+
+  /* Малый состав (2–5 человек): подозреваемые не игроки, а персонажи дела. Имена под эпоху дела. */
+  const NPC_NAMES = {
+    classic: ['Вера Лаптева', 'Оскар Линд', 'Агата Шольц', 'Савелий Грач', 'Нина Ордынская', 'Феликс Бреннер', 'Клара Майер', 'Аркадий Зорин',
+      'Эльза Тамм', 'Генрих Ольсен', 'Лидия Вербицкая', 'Тимофей Кольцов', 'Ада Ланге', 'Борис Шелест', 'Ирма Фогель', 'Яков Ремез'],
+    modern: ['Даша Котова', 'Илья Шмелёв', 'Алиса Ким', 'Марк Зайцев', 'Соня Белая', 'Тимур Галеев', 'Лера Миронова', 'Влад Орлов',
+      'Ева Гордеева', 'Никита Лазарев', 'Майя Ефимова', 'Рома Бойко', 'Кира Тарасова', 'Гоша Мельник', 'Яна Рябова', 'Стас Волков'],
+  };
+  /* Описания карт, когда подозреваемые персонажи, а не игроки за столом. */
+  const CARDS_NPC = {
+    warrant: 'Тайно посмотреть одну скрытую строку в карточке персонажа. Увидите только вы.',
+    confront: 'Свести двух персонажей: оба при всех раскрывают алиби, связь с жертвой или мотив.',
+    testimony: 'Заставить персонажа при всех раскрыть конкретную строку.',
+    swap: 'Со второго раунда тайно подменить следующую улику: она укажет на выбранного персонажа.',
+    lab: 'Тайно проверить одну из найденных улик: правдивая она или подменённая.',
+    trail: 'Лежит на одном из преступников: первый «Обыск», который его выдал бы, покажет чистый результат.',
   };
 
   /* Подсказки рассказчику: о чём говорить вслух, когда открыта карточка. */
@@ -192,7 +209,7 @@
 
   return {
     TAGS, TAG_KEYS, HABIT_TAGS, TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS,
-    RELATIONS, MOTIVES, SECRET_LOC, SECRET_PLAIN, GENERIC_PROFESSIONS, CARDS, SWAPS_IN_DECK, AWARDS, DURATIONS, PROMPTS, BOT_NAMES, BOT_LINES, trans,
+    RELATIONS, MOTIVES, SECRET_LOC, SECRET_PLAIN, GENERIC_PROFESSIONS, CARDS, SWAPS_IN_DECK, AWARDS, DURATIONS, PROMPTS, BOT_NAMES, BOT_LINES, NPC_NAMES, CARDS_NPC, trans,
     registerCase, habitPool, clueTexts, caseList,
   };
 });

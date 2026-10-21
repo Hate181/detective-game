@@ -41,7 +41,7 @@
     const out = new Set((R.kicks || []).map((k) => k.id));
     const free = [R.killerId, R.accompliceId].filter((id) => id && !out.has(id));
     const win = R.winner === 'innocent';
-    const title = win ? 'Невиновные победили' : free.length > 1 ? 'Преступники на свободе' : free[0] === R.accompliceId ? 'Сообщник на свободе' : 'Убийца на свободе';
+    const title = R.small ? (win ? 'Дело раскрыто' : 'Преступники ушли') : win ? 'Невиновные победили' : free.length > 1 ? 'Преступники на свободе' : free[0] === R.accompliceId ? 'Сообщник на свободе' : 'Убийца на свободе';
     return { win, title };
   }
 
@@ -52,10 +52,12 @@
     // Высота картинки по содержимому: шапка (одна или две строки названия) и строка на каждого игрока
     ctx.font = `700 60px ${F.display}`;
     const titleN = wrap(ctx, g.case.title, W - PAD * 2, 2).length;
-    const H = 398 + (titleN - 1) * 68 + ROW * g.players.length + 40 + 112;
+    const H = 398 + (titleN - 1) * 68 + ROW * R.rank.length + 40 + 112;
     cv.width = W; cv.height = H;
     const byId = {}, idx = {};
     g.players.forEach((p, i) => { byId[p.id] = p; idx[p.id] = i; });
+    // Малый состав: в таблице очков люди, а за столом персонажи.
+    if (g.small) g.small.team.forEach((p, i) => { byId[p.id] = p; idx[p.id] = 10 + i; });
     const nm = (id) => (byId[id] ? byId[id].name : '?');
 
     // Фон: тёплая темнота, свет лампы слева сверху, лёгкое зерно
@@ -108,7 +110,7 @@
     ctx.fillText(fit(ctx, crim, W - PAD * 2), PAD, y);
     y += 38;
     const rounds = R.rounds || (g.verdict && g.verdict.round) || 0;
-    ctx.fillText(`${g.players.length} ${plural(g.players.length, 'игрок', 'игрока', 'игроков')} · ${rounds} ${plural(rounds, 'раунд', 'раунда', 'раундов')} · ${R.minutes} мин`, PAD, y);
+    ctx.fillText(`${R.rank.length} ${plural(R.rank.length, 'игрок', 'игрока', 'игроков')} · ${rounds} ${plural(rounds, 'раунд', 'раунда', 'раундов')} · ${R.minutes} мин`, PAD, y);
     y += 40;
 
     // Лист с игроками
@@ -157,10 +159,10 @@
         ctx.font = `600 ${compact ? 18 : 20}px ${F.ui}`; ctx.fillStyle = C.gold;
         ctx.fillText(fit(ctx, '★ ' + medals[id].join(' · '), maxW - nw - 16), tx + nw + 16, cy - (compact ? 11 : 13));
       }
-      const roleText = role === 'killer' ? 'убийца' : role === 'accomplice' ? 'сообщник' : 'невиновный';
+      const roleText = role === 'killer' ? 'убийца' : role === 'accomplice' ? 'сообщник' : role === 'mole' ? 'крот' : role === 'detective' ? 'следователь' : 'невиновный';
       const extra = kickedRound[id] ? `, исключён в раунде ${kickedRound[id]}` : '';
       ctx.font = `${role === 'innocent' ? 400 : 600} ${compact ? 18 : 20}px ${F.ui}`;
-      ctx.fillStyle = role === 'killer' ? C.oxblood : role === 'accomplice' ? C.gold : C.inkMute;
+      ctx.fillStyle = role === 'killer' || role === 'mole' ? C.oxblood : role === 'accomplice' ? C.gold : C.inkMute;
       ctx.fillText(roleText, tx, cy + (compact ? 14 : 18));
       if (extra) { const rw = ctx.measureText(roleText).width; ctx.font = `400 ${compact ? 18 : 20}px ${F.ui}`; ctx.fillStyle = C.inkMute; ctx.fillText(fit(ctx, extra, maxW - rw), tx + rw, cy + (compact ? 14 : 18)); }
       ctx.textBaseline = 'alphabetic';
