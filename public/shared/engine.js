@@ -17,7 +17,7 @@
 
   const ROUNDS = 4;
   // Малый состав: подозреваемых шесть персонажей дела, задержать можно не больше трёх, поэтому раундов три.
-  const SMALL_ROUNDS = 3, NPC_COUNT = 6;
+  const SMALL_ROUNDS = 3, NPC_COUNT = 6, SMALL_REVEALS = 4;
   const PH = {
     BRIEF: 'brief', CLUE: 'clue', TURNS: 'turns', TALK: 'talk', ACCUSE: 'accuse', VOTE: 'vote', RESULT: 'result',
     POLL: 'poll', DEFENSE: 'defense', FINAL: 'final', VERDICT: 'verdict', ACCOMPLICE: 'accomplice', MOLE: 'mole', ENDED: 'ended',
@@ -134,12 +134,13 @@
     // «Ложный след» с самого начала лежит на одном из преступников.
     if (rules.trail !== false) game.players[rng.pick([killerId, accompliceId])].cards.push({ type: 'trail', used: false, got: 0 });
 
-    // Карты людей: по две. У крота всегда «Подмена улики».
-    const deck = rng.shuffle(['warrant', 'warrant', 'testimony', 'testimony', 'confront', 'confront', 'warrant', 'testimony', 'confront', 'warrant']);
+    // Карты людей: по три. У крота всегда «Подмена улики».
+    const deck = rng.shuffle(['warrant', 'testimony', 'confront'].flatMap((t) => [t, t, t, t, t]));
     let di = 0;
     players.forEach((p) => {
       const mole = p.id === moleId;
-      const hand = mole ? ['swap', deck[di++ % deck.length]] : [deck[di++ % deck.length], deck[di++ % deck.length]];
+      const hand = mole ? ['swap'] : [];
+      while (hand.length < 3) hand.push(deck[di++ % deck.length]);
       game.players[p.id] = {
         id: p.id, name: p.name, bot: !!p.bot, auto: !!p.bot, role: mole ? 'mole' : 'detective', card: null,
         cards: hand.map((type) => ({ type, used: false })),
@@ -280,7 +281,9 @@
   function startTurns(game, now) {
     const act = voters(game).map((p) => p.id);
     const start = (game.round - 1) % act.length;
-    const queue = act.slice(start).concat(act.slice(0, start));
+    let queue = act.slice(start).concat(act.slice(0, start));
+    // Малый состав: за раунд открывается не меньше четырёх строк, вдвоём и втроём каждый ходит дважды.
+    if (game.small) { const once = queue; while (queue.length < SMALL_REVEALS) queue = queue.concat(once); }
     game.turn = { queue, idx: -1, speakerId: null, revealed: false, round: game.round };
     nextTurn(game, now);
   }
@@ -347,7 +350,7 @@
      кого подозревает и почему. С живым ведущим дальше листает только он, по таймерам говорящий может закончить сам. */
   function startAccuse(game, now) {
     const order = game.turn && game.turn.round === game.round ? game.turn.queue : voters(game).map((p) => p.id);
-    game.accuse = { queue: order.filter((id) => P(game, id).status === 'active'), idx: -1, speakerId: null, done: false, round: game.round };
+    game.accuse = { queue: [...new Set(order)].filter((id) => P(game, id).status === 'active'), idx: -1, speakerId: null, done: false, round: game.round };
     pushFeed(game, now, { kind: 'system', text: game.small ? 'Обвинительная минута. По очереди каждый говорит, кого из персонажей подозревает и почему.' : 'Обвинительная минута. По очереди каждый говорит, кого подозревает и почему.' });
     nextAccuser(game, now);
   }
@@ -1312,7 +1315,7 @@
             id, name: p.name, bot: p.bot, host: id === game.hostId, ready: p.ready, auto: p.auto && !p.bot,
             role: ended || id === viewerId ? p.role : null,
             speaking: (!!turn && turn.speakerId === id) || (!!acc && acc.speakerId === id),
-            spoke: !!game.turn && game.turn.round === game.round && game.turn.queue.indexOf(id) >= 0 && (game.phase !== PH.TURNS ? game.phase !== PH.CLUE : game.turn.queue.indexOf(id) < game.turn.idx),
+            spoke: !!game.turn && game.turn.round === game.round && game.turn.queue.indexOf(id) >= 0 && (game.phase !== PH.TURNS ? game.phase !== PH.CLUE : game.turn.queue.lastIndexOf(id) < game.turn.idx),
             voted: (!!voting && !!game.vote.votes[id]) || (game.phase === PH.MOLE && !!game.moleVote.votes[id]),
           };
         }),

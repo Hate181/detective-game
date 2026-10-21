@@ -299,7 +299,7 @@
         const fresh = g.clues.filter((c) => c.round === g.round);
         return `<div class="s-head"><p class="eyebrow">${g.finale ? 'Финал' : `Раунд ${g.round} из ${g.rounds}`}</p><h3>${g.finale ? 'Последние улики' : 'Новая улика'}</h3></div>
           <div style="display:grid;gap:12px;justify-items:start">${fresh.map((c) => `<article class="paper clue big new"><span class="no">Улика ${g.clues.indexOf(c) + 1}</span><p>${esc(c.text)}</p><span class="tagname">${esc(c.label)}</span></article>`).join('')}</div>
-          <div class="talk-hint">${icon('mic')}<span>${this.small ? 'Кому из персонажей это подходит? Выскажите версии вслух, потом каждый откроет по строке.' : 'Кому это подходит? Выскажите версии вслух, потом пойдёт круг рассказов.'}</span></div>`;
+          <div class="talk-hint">${icon('mic')}<span>${this.small ? `Кому из персонажей это подходит? Выскажите версии вслух, потом каждый откроет ${g.small.team.length < 4 ? 'по две строки' : 'по строке'}.` : 'Кому это подходит? Выскажите версии вслух, потом пойдёт круг рассказов.'}</span></div>`;
       }
 
       if (g.phase === 'turns' && g.turn && this.small) return this.smallTurn();
@@ -549,7 +549,7 @@
     renderHost(st) {
       const g = this.g, me = this.me, host = this.root.querySelector('#gHost');
       if (['verdict', 'ended'].includes(g.phase)) { setHtml(host, ''); host.className = 'host-bar'; return; }
-      const sm = this.small ? { clue: ['К показаниям', 'Каждый откроет по строке персонажа'], turns: ['Передать ход дальше', 'Когда строка открыта и обсуждена'] } : {};
+      const sm = this.small ? { clue: ['К показаниям', g.small.team.length < 4 ? 'Каждый откроет по две строки персонажей' : 'Каждый откроет по строке персонажа'], turns: ['Передать ход дальше', 'Когда строка открыта и обсуждена'] } : {};
       const hostP = this.byId[g.hostId];
       const ppl = this.people().filter((p) => this.small || p.status === 'active');
       const nAct = ppl.length;
