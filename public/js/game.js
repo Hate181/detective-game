@@ -762,7 +762,7 @@
       }
       if (type === 'swap') {
         ids = (me.swapTargets || []).filter((id) => id !== me.id);
-        if (!ids.length) return toast('Подменять уже нечего: все улики найдены.', 'err');
+        if (!ids.length) return toast(this.small && this.g.round < 2 ? '«Подмену улики» можно сыграть со второго раунда.' : 'Подменять уже нечего: все улики найдены.', 'err');
         const target = await this.pickPlayer('На кого навести улику?', 'Улика, которую найдут следующей, поменяется и укажет на этого игрока. Её откроют в начале следующего раунда, как обычную, и никто не узнает, что это вы.', ids);
         if (target) this.act('card', { type, target });
         return;

@@ -16,7 +16,9 @@
     function smallSuspicion(game, viewer) {
       const out = {};
       const clues = game.clues.filter((c) => c.revealedRound !== null);
-      const lab = new Set(viewer.notes.filter((n) => n.kind === 'lab' && n.fake).map((n) => n.clueId));
+      // Результат «Экспертизы» следователи говорят вслух, боты верят друг другу.
+      const labNotes = game.small ? game.team.flatMap((id) => game.players[id].notes) : viewer.notes;
+      const lab = new Set(labNotes.filter((n) => n.kind === 'lab' && n.fake).map((n) => n.clueId));
       for (const t of active(game)) {
         let s = 0;
         const shown = new Set(E.shownTags(t));
@@ -51,7 +53,7 @@
       }
       if (card.type === 'lab') {
         const done = new Set(p.notes.filter((n) => n.kind === 'lab').map((n) => n.clueId));
-        const clue = game.clues.filter((c) => c.revealedRound !== null && !done.has(c.id)).pop();
+        const clue = game.clues.filter((c) => c.revealedRound !== null && c.revealedRound >= 2 && !done.has(c.id)).pop();
         return clue ? act(game, p.id, 'card', { type: 'lab', clueId: clue.id }, now).ok : false;
       }
       if (card.type === 'confront') {

@@ -98,9 +98,10 @@
     const ids = npcs.map((c) => c.id);
     const killerId = rng.pick(ids);
     const accompliceId = rng.pick(ids.filter((id) => id !== killerId));
-    const rules = Object.assign({ oneOfTwo: true, gang: true, labTo: 'innocent', labCount: 1 }, settings.rules);
+    // Крот подменяет улику не раньше второго раунда: одна ложная улика в первом круге слишком часто решала дело.
+    const rules = Object.assign({ oneOfTwo: true, gang: true, labTo: 'innocent', labCount: 1, swapFrom: 2 }, settings.rules);
     const gen = Generator.generate({ caseData, ids, killerId, accompliceId, gang: true, rng });
-    const moleId = team.length >= 3 ? (forceMole && team.includes(forceMole) ? forceMole : rng.pick(team)) : null;
+    const moleId = team.length >= 3 && (settings.rules || {}).mole !== false ? (forceMole && team.includes(forceMole) ? forceMole : rng.pick(team)) : null;
 
     const game = {
       seed, caseData: JSON.parse(JSON.stringify(Object.assign({}, caseData, { professions: undefined }))),
@@ -139,7 +140,7 @@
     let di = 0;
     players.forEach((p) => {
       const mole = p.id === moleId;
-      const hand = mole ? ['swap'] : [];
+      const hand = mole && rules.moleSwap !== false ? ['swap'] : [];
       while (hand.length < 3) hand.push(deck[di++ % deck.length]);
       game.players[p.id] = {
         id: p.id, name: p.name, bot: !!p.bot, auto: !!p.bot, role: mole ? 'mole' : 'detective', card: null,
@@ -1032,6 +1033,7 @@
       // Подменяется именно та улика, которую найдут следующей. Если её уже подменили, побеждает последняя подмена.
       const clue = nextClue(game);
       if (!clue) bad('Подменять уже нечего: все улики найдены.');
+      if (game.round < (game.settings.rules.swapFrom || 1)) bad(`«Подмену улики» можно сыграть с ${game.settings.rules.swapFrom}-го раунда.`);
       const tag = pickSwapTag(game, t, p);
       if (!tag) bad('У этого игрока не за что зацепиться. Выберите другого.');
       const no = game.clues.indexOf(clue) + 1;
@@ -1095,7 +1097,7 @@
 
   /** На кого игрок может навести подменённую улику: подсказка для интерфейса и ботов. */
   function swapTargets(game, p) {
-    if (!nextClue(game)) return [];
+    if (!nextClue(game) || game.round < (game.settings.rules.swapFrom || 1)) return [];
     return active(game).filter((t) => t.id !== p.id && pickSwapTag(game, t, p)).map((t) => t.id);
   }
 
