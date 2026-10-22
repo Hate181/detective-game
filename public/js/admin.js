@@ -7,12 +7,15 @@
   const ICON_NAMES = { mansion: 'Особняк', train: 'Поезд', corporate: 'Бокал', yacht: 'Якорь', theatre: 'Театр', hotel: 'Отель', generic: 'Лупа', museum: 'Музей', lighthouse: 'Маяк', mountain: 'Горы', casino: 'Казино', film: 'Кино', clinic: 'Клиника', book: 'Книга', circus: 'Цирк', airship: 'Дирижабль', pyramid: 'Пирамида', radio: 'Радио', wine: 'Вино', bank: 'Банк', spa: 'Санаторий', steamboat: 'Пароход', chess: 'Шахматы', pumpkin: 'Тыква', mask: 'Маска', candle: 'Свеча', bat: 'Летучая мышь', grave: 'Надгробие', campfire: 'Костёр', ghost: 'Призрак', raven: 'Ворон', phone: 'Телефон', camera: 'Камера', mic: 'Микрофон', laptop: 'Ноутбук', lock: 'Замок', cloche: 'Клош', building: 'Многоэтажка', cabin: 'Дом у леса', gamepad: 'Геймпад', frame: 'Картина', note: 'Нота' };
   const SPEEDS = [[1, 'Обычная'], [0.5, '×2'], [0.25, '×4'], [0.1, '×10'], [0.05, '×20']];
   const ROLES = [['random', 'Случайная'], ['killer', 'Убийца'], ['innocent', 'Невиновный'], ['accomplice', 'Сообщник']];
+  const SMALL_ROLES = [['random', 'Случайная'], ['detective', 'Следователь'], ['mole', 'Крот']];
+  const TABLES = [['full', '6 и более'], ['small', '2–5']];
   const PHASES = { brief: 'вводная', reveal: 'улика', discuss: 'обсуждение', poll: 'голосование', defense: 'очная ставка', final: 'финал', verdict: 'приговор', accomplice: 'сообщник', ended: 'закончена' };
 
   Screens.admin = {
     mount(root) {
       this.tab = 'test'; this.auth = null; this.cases = []; this.edit = null; this.rooms = []; this.simOut = null;
-      this.testOpts = { name: 'Админ', bots: 6, caseId: 'random', role: 'random', speed: 1, autostart: true, auto: false, mode: 'host', hints: 'normal' };
+      this.testOpts = { name: 'Админ', table: 'full', bots: 6, caseId: 'random', role: 'random', speed: 1, autostart: true, auto: false, mode: 'host', hints: 'normal' };
+      this.simOpts = { table: 'full', games: 60, players: 8, caseId: 'all' };
       root.innerHTML = '<div class="wrap admin" id="adm"></div>';
       this.root = root.firstElementChild;
       this.root.addEventListener('click', (e) => this.onClick(e));
@@ -105,16 +108,19 @@
     testHtml() {
       const o = this.testOpts;
       const caseOpts = ['<option value="random">Случайное дело</option>'].concat(this.cases.filter((c) => c.enabled !== false).map((c) => `<option value="${esc(c.id)}" ${o.caseId === c.id ? 'selected' : ''}>${esc(c.title)}</option>`)).join('');
-      const total = o.bots + 1;
+      const total = o.bots + 1, small = o.table === 'small';
+      const botsNote = small ? (total >= 3 ? ', один из вас крот' : ', без крота') : total >= 6 ? ', убийца и сообщник' : '';
       return `<div class="admin-grid"><section class="panel"><div class="panel-head"><h2>Новая тестовая комната</h2></div>
         <div class="form-grid">
           <div class="row2"><div class="field"><label for="tName">Ваше имя</label><input class="input" id="tName" data-k="name" value="${esc(o.name)}" maxlength="18"></div>
             <div class="field"><label for="tCase">Дело</label><select class="input" id="tCase" data-k="caseId">${caseOpts}</select></div></div>
-          <div class="field"><label for="tBots">Ботов: ${o.bots} (всего игроков ${total}${total >= 6 ? ", убийца и сообщник" : ""})</label><input type="range" id="tBots" data-k="bots" min="3" max="9" value="${o.bots}"></div>
-          <div class="field"><label>Ваша роль</label><div class="seg" role="group" style="flex-wrap:wrap">${ROLES.map(([k, t]) => `<button type="button" data-a="set" data-k="role" data-v="${k}" class="${o.role === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+          <div class="field"><label>Сколько вас</label><div class="seg" role="group">${TABLES.map(([k, t]) => `<button type="button" data-a="set" data-k="table" data-v="${k}" class="${o.table === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+          <div class="field"><label for="tBots">Ботов: ${o.bots} (всего игроков ${total}${botsNote})</label><input type="range" id="tBots" data-k="bots" min="${small ? 1 : 3}" max="${small ? 4 : 9}" value="${o.bots}"></div>
+          <div class="field"><label>Ваша роль</label><div class="seg" role="group" style="flex-wrap:wrap">${(small ? SMALL_ROLES : ROLES).map(([k, t]) => `<button type="button" data-a="set" data-k="role" data-v="${k}" class="${o.role === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
           <div class="field"><label>Как идёт партия</label><div class="seg" role="group">${[['host', 'Ведущий (вы)'], ['timers', 'Таймеры']].map(([k, t]) => `<button type="button" data-a="set" data-k="mode" data-v="${k}" class="${o.mode === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
           <div class="field"><label>Режим</label><div class="seg" role="group">${[['normal', 'Обычный'], ['light', 'Лайт']].map(([k, t]) => `<button type="button" data-a="set" data-k="hints" data-v="${k}" class="${(o.hints || 'normal') === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
           <div class="field"><label for="tSpeed">Скорость времени</label><select class="input" id="tSpeed" data-k="speed">${SPEEDS.map(([v, t]) => `<option value="${v}" ${o.speed === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+          ${small && o.role !== 'random' && total < 3 ? '<p class="note" style="border-color:var(--amber);background:rgba(233,162,59,.1)">Вдвоём крота нет, оба играют следователями. Добавьте бота, чтобы проверить крота.</p>' : ''}
           ${o.role === 'accomplice' && total < 6 ? '<p class="note" style="border-color:var(--amber);background:rgba(233,162,59,.1)">Сообщник появляется при шести игроках и больше. Добавьте ботов, иначе роль выпадет случайной.</p>' : ''}
           <div class="row2"><label class="switch"><input type="checkbox" data-k="autostart" ${o.autostart ? 'checked' : ''}><span></span>Сразу начать партию</label>
             <label class="switch"><input type="checkbox" data-k="auto" ${o.auto ? 'checked' : ''}><span></span>Автопилот за меня</label></div>
@@ -128,7 +134,7 @@
     },
     async createTest() {
       const o = this.testOpts;
-      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode, hints: o.hints });
+      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode, hints: o.hints, table: o.table });
       if (!r.ok) return fail(r);
       if (o.auto) await Net.call('admin:room', { code: r.code, action: 'auto' });
       location.hash = `#/room/${r.code}`;
@@ -229,21 +235,24 @@
 
     /* ---------- Симуляция ---------- */
     simHtml() {
-      const caseOpts = ['<option value="all">Все включённые дела</option>'].concat(this.cases.map((c) => `<option value="${esc(c.id)}">${esc(c.title)}</option>`)).join('');
+      const o = this.simOpts, small = o.table === 'small';
+      const caseOpts = ['<option value="all">Все включённые дела</option>'].concat(this.cases.map((c) => `<option value="${esc(c.id)}" ${o.caseId === c.id ? 'selected' : ''}>${esc(c.title)}</option>`)).join('');
       const s = this.simOut;
       return `<div class="admin-grid"><section class="panel"><div class="panel-head"><h2>Массовая симуляция</h2></div>
         <p class="muted" style="margin-bottom:14px">Боты играют партии на полной скорости. Движок проверяет правила и фиксирует нарушения: так видно, ломает ли что-то новое дело или правка.</p>
-        <div class="form-grid"><div class="row3"><div class="field"><label for="sGames">Партий</label><input class="input" id="sGames" type="number" min="1" max="300" value="60"></div>
-          <div class="field"><label for="sPl">Игроков</label><input class="input" id="sPl" type="number" min="4" max="10" value="8"></div>
+        <div class="form-grid"><div class="field"><label>Сколько игроков за столом</label><div class="seg" role="group">${TABLES.map(([k, t]) => `<button type="button" data-a="sim-table" data-v="${k}" class="${o.table === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+          <div class="row3"><div class="field"><label for="sGames">Партий</label><input class="input" id="sGames" type="number" min="1" max="300" value="${o.games}"></div>
+          <div class="field"><label for="sPl">Игроков</label><input class="input" id="sPl" type="number" min="${small ? 2 : 4}" max="${small ? 5 : 10}" value="${o.players}"></div>
           <div class="field"><label for="sCase">Дело</label><select class="input" id="sCase">${caseOpts}</select></div></div>
           <button class="btn btn-primary" data-a="run-sim">Запустить</button></div></section>
         <section class="panel" id="simOut"><div class="panel-head"><h2>Результат</h2></div>${s ? this.simResult(s) : '<p class="empty-note">Пока не запускали.</p>'}</section></div>`;
     },
     simResult(s) {
       const pct = s.games ? Math.round((s.innocentWins / s.games) * 100) : 0;
-      const reasons = Object.entries(s.byRound).map(([k, v]) => `<span class="chip">${esc(k)}: ${v}</span>`).join('');
-      return `<div class="sim-out"><div class="m"><span class="label">Партий</span><b>${s.games}</b></div><div class="m"><span class="label">Победы невиновных</span><b>${pct}%</b></div>
-        <div class="m"><span class="label">Средняя длина</span><b>${s.avgMinutes.toFixed(1)} мин</b></div><div class="m"><span class="label">Исключено невиновных</span><b>${s.innocentKicks}</b></div><div class="m ${s.violations ? 'bad' : ''}"><span class="label">Нарушения правил</span><b>${s.violations}</b></div></div>
+      const reasons = Object.entries(s.byRound).sort(([a], [b]) => a.localeCompare(b, 'ru')).map(([k, v]) => `<span class="chip">${esc(k)}: ${v}</span>`).join('');
+      const mole = s.small && s.moleGames ? `<div class="m"><span class="label">Крота вычислили</span><b>${Math.round((s.moleCaught / s.moleGames) * 100)}%</b></div>` : '';
+      return `<div class="sim-out"><div class="m"><span class="label">Партий${s.small ? ` · ${s.players} чел.` : ''}</span><b>${s.games}</b></div><div class="m"><span class="label">${s.small ? 'Дело раскрыто' : 'Победы невиновных'}</span><b>${pct}%</b></div>${mole}
+        <div class="m"><span class="label">Средняя длина</span><b>${s.avgMinutes.toFixed(1)} мин</b></div><div class="m"><span class="label">${s.small ? 'Задержано невиновных' : 'Исключено невиновных'}</span><b>${s.innocentKicks}</b></div><div class="m ${s.violations ? 'bad' : ''}"><span class="label">Нарушения правил</span><b>${s.violations}</b></div></div>
         <div class="chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:12px">${reasons}</div>
         ${s.errors.length ? `<div class="note" style="margin-top:12px;border-color:var(--red);background:var(--red-dim)">${s.errors.map((e) => esc(e)).join('<br>')}</div>` : ''}`;
     },
@@ -252,11 +261,19 @@
       const btn = this.root.querySelector('[data-a="run-sim"]');
       btn.disabled = true; btn.textContent = 'Играем…';
       await new Promise((r) => setTimeout(r, 30));
-      const r = await Net.call('admin:sim', { games: Number(g('#sGames').value), players: Number(g('#sPl').value), caseId: g('#sCase').value });
+      this.readSim();
+      const o = this.simOpts;
+      const r = await Net.call('admin:sim', { games: o.games, players: o.players, caseId: o.caseId, table: o.table });
       btn.disabled = false; btn.textContent = 'Запустить';
       if (!r.ok) return fail(r);
       this.simOut = r.sim;
       g('#simOut').innerHTML = `<div class="panel-head"><h2>Результат</h2></div>${this.simResult(r.sim)}`;
+    },
+
+    readSim() {
+      const g = (id) => this.root.querySelector(id), o = this.simOpts;
+      if (!g('#sGames')) return;
+      o.games = Number(g('#sGames').value) || 60; o.players = Number(g('#sPl').value) || o.players; o.caseId = g('#sCase').value;
     },
 
     /* ---------- События ---------- */
@@ -276,7 +293,17 @@
       const a = b.dataset.a;
       if (a === 'tab') { this.tab = b.dataset.tab; this.renderTabs(); this.renderBody(); }
       else if (a === 'back') location.hash = `#/room/${this.st.code}`;
-      else if (a === 'set') { this.testOpts[b.dataset.k] = b.dataset.v; this.root.querySelector('#aBody').innerHTML = this.testHtml(); }
+      else if (a === 'set') {
+        const o = this.testOpts, k = b.dataset.k;
+        // Смена состава: роли и число ботов у режимов разные.
+        if (k === 'table' && o.table !== b.dataset.v) { o.role = 'random'; o.bots = b.dataset.v === 'small' ? 2 : 6; }
+        o[k] = b.dataset.v; this.root.querySelector('#aBody').innerHTML = this.testHtml();
+      } else if (a === 'sim-table') {
+        this.readSim();
+        const o = this.simOpts;
+        if (o.table !== b.dataset.v) { o.table = b.dataset.v; o.players = o.table === 'small' ? 3 : 8; this.simOut = null; }
+        this.root.querySelector('#aBody').innerHTML = this.simHtml();
+      }
       else if (a === 'create-test') this.createTest();
       else if (a === 'users-reload') this.loadUsers();
       else if (a === 'reset-pass') {

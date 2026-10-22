@@ -458,19 +458,21 @@
       // Выбор конкретного дела действует на одну партию: «Следующее дело» снова берёт случайное.
       room.caseChoice = 'random';
       const host = members.find((p) => p.id === room.hostId);
-      let forceKiller = null, forceAccomplice = null;
+      let forceKiller = null, forceAccomplice = null, forceMole = null;
       if (room.test && host) {
         const bots = members.filter((p) => p.isBot);
         if (room.testRole === 'killer') forceKiller = host.id;
         else if (room.testRole === 'innocent' && bots.length) forceKiller = bots[this._rand(bots.length)].id;
         else if (room.testRole === 'accomplice' && bots.length) { forceKiller = bots[this._rand(bots.length)].id; forceAccomplice = host.id; }
+        else if (room.testRole === 'mole') forceMole = host.id;
+        else if (room.testRole === 'detective' && bots.length) forceMole = bots[this._rand(bots.length)].id;
       }
       const seed = opts.seed || randomSeed();
       room.game = Engine.createGame({
         caseData: c, seed, now: this.now(),
         players: members.map((p) => ({ id: p.id, name: p.name, bot: p.isBot })),
         settings: { discuss: room.settings.discuss, speed: room.settings.speed, mode: room.settings.mode, hints: room.settings.hints === 'light' ? 'light' : 'normal', table: isSmall(room) ? 'small' : 'full', durations: { turn: room.settings.turn } },
-        hostId: room.hostId, history: { killerCounts: room.killerCounts }, forceKiller, forceAccomplice, forceMole: room.test && room.testRole === 'mole' && host ? host.id : null,
+        hostId: room.hostId, history: { killerCounts: room.killerCounts }, forceKiller, forceAccomplice, forceMole,
       });
       room.gameMeta = { caseData: c, seed };
       room.game.wasRandom = random;
@@ -725,19 +727,20 @@
     }
     ev_admin_rooms(token) { this._admin(token); return { rooms: this.adminRooms() }; }
 
-    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode, hints }) {
+    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode, hints, table }) {
       this._admin(token);
       this._leave(token);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
-        settings: { discuss: 90, turn: 60, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', discord: '' }, players: [], game: null, test: true,
-        testRole: ['killer', 'innocent', 'accomplice', 'random'].includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
+        settings: { discuss: 90, turn: 60, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', table: table === 'small' ? 'small' : 'full', discord: '' }, players: [], game: null, test: true,
+        testRole: (table === 'small' ? ['mole', 'detective', 'random'] : ['killer', 'innocent', 'accomplice', 'random']).includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
       const host = this._addPlayer(room, token, name || 'Админ');
       room.hostId = host.id;
       if (caseId && caseId !== 'random' && Cases.byId(caseId, this.enabledCases())) room.caseChoice = caseId;
-      const n = Math.max(3, Math.min(9, Number(bots) || 5));
+      // Малый состав: всего 2–5 человек, значит ботов от одного до четырёх.
+      const n = isSmall(room) ? Math.max(SMALL_MIN - 1, Math.min(SMALL_MAX - 1, Number(bots) || 2)) : Math.max(3, Math.min(9, Number(bots) || 5));
       const used = new Set();
       for (let i = 0; i < n; i++) {
         const nm = Content.BOT_NAMES.find((x) => !used.has(x)) || `Агент ${i + 1}`;
@@ -812,18 +815,19 @@
       this.notify(room);
     }
 
-    ev_admin_sim(token, { games, players, caseId }) {
+    ev_admin_sim(token, { games, players, caseId, table }) {
       this._admin(token);
       const list = this.enabledCases();
-      const n = Math.max(4, Math.min(10, Number(players) || 7));
+      const small = table === 'small';
+      const n = small ? Math.max(SMALL_MIN, Math.min(SMALL_MAX, Number(players) || 3)) : Math.max(4, Math.min(10, Number(players) || 7));
       const total = Math.max(1, Math.min(300, Number(games) || 50));
       const picked = caseId && caseId !== 'all' ? [Cases.byId(caseId, list)].filter(Boolean) : list;
-      const agg = { games: 0, players: n, innocentWins: 0, byReason: {}, byRound: {}, avgMinutes: 0, innocentKicks: 0, violations: 0, errors: [] };
+      const agg = { games: 0, players: n, small, innocentWins: 0, byReason: {}, byRound: {}, avgMinutes: 0, innocentKicks: 0, violations: 0, errors: [], moleGames: 0, moleCaught: 0 };
       let minutes = 0;
       picked.forEach((c, i) => {
         const part = Math.max(1, Math.round(total / picked.length));
-        const r = Engine.simulate({ caseData: c, games: part, players: n, seed: 100 + i });
-        agg.games += r.games; agg.innocentWins += r.innocentWins; agg.innocentKicks += r.innocentKicks;
+        const r = Engine.simulate({ caseData: c, games: part, players: n, seed: 100 + i, settings: small ? { table: 'small' } : {} });
+        agg.games += r.games; agg.moleGames += r.moleGames; agg.moleCaught += r.moleCaught; agg.innocentWins += r.innocentWins; agg.innocentKicks += r.innocentKicks;
         agg.violations += r.violations.length; agg.errors.push(...r.errors.slice(0, 3)); minutes += r.avgMinutes * r.games;
         Object.entries(r.byReason).forEach(([k, v]) => { agg.byReason[k] = (agg.byReason[k] || 0) + v; });
         Object.entries(r.byRound).forEach(([k, v]) => { agg.byRound[k] = (agg.byRound[k] || 0) + v; });
