@@ -811,6 +811,9 @@ body[data-screen="home"] .sitefoot, body[data-screen="page"] .sitefoot { display
 .doc-req dt { color: var(--muted); font: 400 13px/1.5 var(--f-mono); }
 .doc-req dd { margin: 0; overflow-wrap: anywhere; }
 .doc-back { margin-top: 26px; }
+.rules-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 18px; }
+.rules-tabs .seg button { padding: 11px 18px; font-size: 14px; }
+.doc p.rules-tabs-hint { margin: 10px 0 0; color: var(--muted); font-size: 15px; }
 mark.todo { background: rgba(207, 74, 58, .22); color: #ffb4a8; padding: 0 6px; border-radius: 4px; border: 1px dashed var(--red); font-size: .92em; }
 .doc-lead { margin: 18px 0 4px; font-size: 18px; color: var(--text) !important; }
 
