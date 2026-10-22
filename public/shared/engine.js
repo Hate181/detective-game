@@ -1373,6 +1373,7 @@
         players: game.order.map((id) => { const p = game.players[id]; return { id, name: p.name, role: p.role, auto: p.auto, bot: p.bot, status: p.status, card: viewCard(game, p), cards: p.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, used: c.used })), goalDone: p.goalDone }; }),
         clues: game.clues.map((c) => ({ id: c.id, tag: c.tag, label: Content.TAGS[c.tag].label, text: c.text, planted: c.planted, orig: c.orig ? Content.TAGS[c.orig.tag].label : null, revealedRound: c.revealedRound, fits: c.fits.map((i) => nm(game, i)) })),
         moleId: game.moleId || null,
+        team: game.small ? game.team.map((id) => { const p = game.players[id]; return { id, name: p.name, role: p.role, auto: p.auto, cards: p.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, used: c.used })) }; }) : null,
       };
     }
     return v;
@@ -1381,7 +1382,7 @@
   /* ---------- Симуляция партий ботов (для админки и тестов) ---------- */
 
   function simulate({ caseData, games = 20, players = 7, seed = 1, settings = {} }) {
-    const out = { games, players, innocentWins: 0, byReason: {}, byRound: {}, minutes: [], innocentKicks: 0, violations: [], errors: [] };
+    const out = { games, players, innocentWins: 0, byReason: {}, byRound: {}, minutes: [], innocentKicks: 0, violations: [], errors: [], moleGames: 0, moleCaught: 0 };
     for (let g = 0; g < games; g++) {
       try {
         const list = Array.from({ length: players }, (_, i) => ({ id: 'b' + i, name: 'Бот ' + (i + 1), bot: true }));
@@ -1395,10 +1396,11 @@
         const r = game.results;
         if (r.winner === 'innocent') out.innocentWins++;
         out.byReason[r.reason] = (out.byReason[r.reason] || 0) + 1;
-        const key = r.reason === 'caught' ? `пойман в раунде ${game.verdict.round}` : r.reason === 'outnumbered' ? 'перевес преступников' : 'ушёл на финале';
+        const key = r.reason === 'caught' ? `${game.small ? 'раскрыто' : 'пойман'} в раунде ${game.verdict.round}` : r.reason === 'outnumbered' ? 'перевес преступников' : r.reason === 'wrong' ? `двое невиновных, раунд ${game.verdict.round}` : 'ушёл на финале';
         out.byRound[key] = (out.byRound[key] || 0) + 1;
         out.minutes.push((game.endedAt - game.startedAt) / 60000);
         out.innocentKicks += game.kicks.filter((a) => a.role === 'innocent').length;
+        if (game.moleResult) { out.moleGames++; if (game.moleResult.caught) out.moleCaught++; }
       } catch (e) { out.errors.push(String(e && e.stack || e)); }
     }
     const m = out.minutes;

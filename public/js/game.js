@@ -655,8 +655,10 @@
         ${god.players.map((p) => `<div class="gp ${p.role}"><b>${esc(p.name)} · ${p.role === 'killer' ? 'УБИЙЦА' : p.role === 'accomplice' ? 'сообщник' : 'невиновный'}${p.auto ? ' · авто' : ''}${god.votes[p.id] ? ` · голос → ${esc((this.byId[god.votes[p.id]] || {}).name || '?')}` : ''}</b>
           <span>${esc(p.card.profession)} · ${esc(p.card.habit)}</span>
           <span>Алиби: ${esc(alibiTxt(p.card.alibi.claim))}${p.card.alibi.lied ? ` <span class="lie" style="color:var(--red)">(правда: ${esc(p.card.alibi.real.loc)})</span>` : ''}</span>
-          <span>Секрет: ${esc(p.card.secret)}</span><span>Цель: ${esc(p.card.goal)}</span>
+          <span>Секрет: ${esc(p.card.secret)}</span>${p.card.goal && !g.small ? `<span>Цель: ${esc(p.card.goal)}</span>` : ''}
           <span class="muted">Карты: ${p.cards.map((c) => `${esc(c.name)}${c.used ? '✗' : ''}`).join(', ')}</span></div>`).join('')}
+        ${god.team ? god.team.map((p) => `<div class="gp ${p.role === 'mole' ? 'killer' : ''}"><b>${esc(p.name)} · ${p.role === 'mole' ? 'КРОТ' : 'следователь'}${p.auto ? ' · авто' : ''}${god.votes[p.id] ? ` · голос → ${esc((this.byId[god.votes[p.id]] || {}).name || '?')}` : ''}</b>
+          <span class="muted">Карты: ${p.cards.map((c) => `${esc(c.name)}${c.used ? '✗' : ''}`).join(', ')}</span></div>`).join('') : ''}
         <div class="gp"><b>Улики</b>${god.clues.map((c) => `<span>${c.revealedRound ? '✓' : '·'} ${esc(c.label)}${c.planted ? ` (подмена, было: ${esc(c.orig)})` : ''}: ${esc(c.fits.join(', '))}</span>`).join('')}</div></div></details>` : '';
       setHtml(host, `<details class="dock" id="dockD" ${this.dockOpen ? 'open' : ''}><summary>Пульт теста <span>${esc(g.phase)}${g.round ? ` · р${g.round}` : ''}</span></summary>
         <div class="dock-body">
