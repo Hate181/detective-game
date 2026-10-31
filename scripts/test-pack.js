@@ -4,6 +4,7 @@ const Cases = require('../public/shared/cases.js');
 const Gen = require('../public/shared/generator.js');
 const Content = require('../public/shared/content.js');
 const { Rng } = require('../public/shared/rng.js');
+const Engine = require('../public/shared/engine.js');
 let fails = 0;
 const check = (ok, msg) => { if (!ok) { fails++; console.log('ПРОВАЛ:', msg); } else console.log('ок:', msg); };
 
@@ -115,11 +116,11 @@ check(sameKiller / cmpKillers < 0.12, `профессия убийцы совп�
   check(dup === 0, `в одной партии на десятерых связи, мотивы и профессии не повторяются (${games} партий)`);
 }
 
-// 5. Тематические паки «Хеллоуин» и «В эфире»
-for (const [packId, packTitle] of [['halloween', 'Хеллоуин'], ['onair', 'В эфире']]) {
+// 5. Тематические паки «Хеллоуин», «В эфире» и «Аниме»
+for (const [packId, packTitle, size, pros] of [['halloween', 'Хеллоуин', 10, 18], ['onair', 'В эфире', 10, 18], ['anime', 'Аниме', 11, 20]]) {
   const hw = Cases.CASES.filter((c) => c.pack === packId);
-  check(hw.length === 10 && new Set(hw.map((c) => c.title)).size === 10, `в паке «${packTitle}» 10 дел (сейчас ${hw.length})`);
-  check(hw.every((c) => c.locations.length === 7 && c.locations.includes(c.scene) && c.professions.length === 18), `в каждом деле пака «${packTitle}» 7 мест и 18 профессий`);
+  check(hw.length === size && new Set(hw.map((c) => c.title)).size === size, `в паке «${packTitle}» ${size} дел (сейчас ${hw.length})`);
+  check(hw.every((c) => c.locations.length === 7 && c.locations.includes(c.scene) && c.professions.length === pros), `в каждом деле пака «${packTitle}» 7 мест и ${pros} профессий`);
   check(hw.every((c) => c.habits.length === 16 && c.relations.length === 12 && c.motives.length === 12 && c.secrets.length === 8), `у каждого дела пака «${packTitle}» 16 примет, 12 связей, 12 мотивов, 8 секретов`);
   check(hw.every((c) => c.professions.every((p) => p.tags.length && p.tags.every((t) => Content.clueTexts(c, t) === c.proClues[t]))), 'у каждой профессии есть умение, и у каждого умения свои улики дела');
   check(hw.every((c) => Cases.ICONS.includes(c.icon) && c.teaser.length <= 400), 'значки из набора, вводные не длиннее 400 знаков');
@@ -143,7 +144,7 @@ for (const [packId, packTitle] of [['halloween', 'Хеллоуин'], ['onair', 
   const toks = Array.from({ length: 7 }, (_, i) => packId + i);
   const { code } = hub.handle(toks[0], 'room:create', { name: 'Ведущий' });
   check(hub.handle(toks[0], 'room:pack', { packId }).ok, `пак «${packTitle}» выбирается в лобби`);
-  check(hub.view(toks[0]).packs.find((p) => p.id === packId).count === 10, 'в лобби у пака видно 10 дел');
+  check(hub.view(toks[0]).packs.find((p) => p.id === packId).count === size, `в лобби у пака видно ${size} дел`);
   toks.slice(1).forEach((tk, i) => { hub.handle(tk, 'room:join', { code, name: 'Х' + i }); hub.handle(tk, 'room:ready', {}); });
   const room = hub.rooms.get(code);
   const got = new Set();
@@ -157,7 +158,7 @@ for (const [packId, packTitle] of [['halloween', 'Хеллоуин'], ['onair', 
   const saved = JSON.parse(JSON.stringify(Cases.CASES.filter((c) => c.pack === 'main')));
   const mm = Cases.mergeBuiltins(saved, saved.map((c) => c.id), Cases.TEXT_REV, Cases.PACK_REV);
   const themed = Cases.CASES.filter((c) => c.pack !== 'main').length;
-  check(mm.added === themed && saved.filter((c) => c.pack === packId).length === 10, `архив сервера получил ${mm.added} новых дел, из них 10 из «${packTitle}»`);
+  check(mm.added === themed && saved.filter((c) => c.pack === packId).length === size, `архив сервера получил ${mm.added} новых дел, из них ${size} из «${packTitle}»`);
   check(!Cases.mergeBuiltins(saved, mm.seen, mm.textRev, mm.packRev).added, 'второй запуск ничего не добавляет');
   // Правка дела в админке не переносит его в другой пак
   hub.setAdmin('adm', true);
@@ -167,6 +168,19 @@ for (const [packId, packTitle] of [['halloween', 'Хеллоуин'], ['onair', 
   check(sv.ok && sv.case.pack === packId && sv.case.habits.length === 16, `правка дела в админке без поля пака оставляет дело в паке «${packTitle}» вместе с приметами`);
   const mv = hub.handle('adm', 'admin:case_save', { data: Object.assign({}, form, { pack: 'main' }) });
   check(mv.ok && mv.case.pack === 'main', 'в админке дело можно перенести в другой пак');
+  if (packId === 'anime') {
+    check(sv.case.npcNames && sv.case.npcNames.length === hw[0].npcNames.length, 'правка дела в админке сохраняет имена персонажей для «2–5»');
+    const allNames = hw.flatMap((c) => c.npcNames || []);
+    check(hw.every((c) => (c.npcNames || []).length >= 60 && new Set(c.npcNames).size === c.npcNames.length), 'у каждого аниме-дела от 60 своих имён персонажей без повторов');
+    check(new Set(allNames).size === allNames.length, 'имена персонажей не повторяются между делами пака');
+    const pool = new Set([...Content.NPC_NAMES.modern, ...Content.NPC_NAMES.classic]);
+    for (const c of hw) {
+      const g = Engine.createGame({ caseData: c, players: [{ id: 'a', name: 'А' }, { id: 'b', name: 'Б' }, { id: 'c', name: 'В' }], settings: { table: 'small' }, seed: 5 });
+      const names = Object.values(g.players).filter((p) => p.npc).map((p) => p.name);
+      if (!(names.length === 6 && names.every((n) => c.npcNames.includes(n) && !pool.has(n)))) { check(false, `в «2–5» дело ${c.id} берёт имена из своего списка (${names.join(', ')})`); break; }
+    }
+    check(true, 'в «2–5» аниме-дела берут имена персонажей из своего списка');
+  }
 }
 
 // 6. Выбор дела ведущим и случайное дело без повторов в комнате
