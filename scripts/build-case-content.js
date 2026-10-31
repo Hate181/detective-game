@@ -15,6 +15,7 @@ for (const dir of dirs) for (const f of fs.readdirSync(dir).filter((x) => /^[a-z
     proClues: d.proClues || {},
     relations: d.relations, motives: d.motives, secrets: d.secrets,
   };
+  if (Array.isArray(d.npcNames) && d.npcNames.length) out[d.id].npcNames = d.npcNames;
 }
 const body = `/* Наполнение встроенных дел: у каждого дела свои приметы (особенности игроков и улики), свои формулировки улик
    для меток профессий, свои связи с жертвой, мотивы и тайны. Файл собирается scripts/build-case-content.js. */

@@ -93,7 +93,9 @@
     const team = players.map((p) => p.id);
     if (team.length < 2) bad('Для партии нужно минимум 2 человека.');
     if (team.length > 5) bad('В малом составе играют до пяти человек.');
-    const pool = rng.shuffle(Content.NPC_NAMES[Number(caseData.year) >= 1990 ? 'modern' : 'classic'].slice());
+    // У тематических дел свой список имён в духе их мира, у остальных общий пул эпохи.
+    const own = Array.isArray(caseData.npcNames) ? Array.from(new Set(caseData.npcNames.filter((n) => typeof n === 'string' && n.trim()))) : [];
+    const pool = rng.shuffle(own.length >= NPC_COUNT ? own : Content.NPC_NAMES[Number(caseData.year) >= 1990 ? 'modern' : 'classic'].slice());
     const npcs = Array.from({ length: NPC_COUNT }, (_, i) => ({ id: `npc${i + 1}`, name: pool[i] }));
     const ids = npcs.map((c) => c.id);
     const killerId = rng.pick(ids);

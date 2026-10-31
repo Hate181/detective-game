@@ -690,7 +690,7 @@
       const i = list.findIndex((x) => x.id === c.id);
       if (i < 0 && list.length >= 300) fail('bad_case', 'В архиве уже 300 дел. Удалите лишние.');
       // Приметы, связи, мотивы и тайны в админке не редактируются: при правке дела они сохраняются как были.
-      if (i >= 0) ['habits', 'proClues', 'relations', 'motives', 'secrets'].forEach((k) => { if (c[k] === undefined && list[i][k] !== undefined) c[k] = list[i][k]; });
+      if (i >= 0) ['habits', 'proClues', 'relations', 'motives', 'secrets', 'npcNames'].forEach((k) => { if (c[k] === undefined && list[i][k] !== undefined) c[k] = list[i][k]; });
       // Пак не теряется, если форма его не прислала.
       if (i >= 0 && !(data && data.pack) && list[i].pack) c.pack = list[i].pack;
       if (i >= 0) list[i] = c; else list.push(c);
