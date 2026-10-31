@@ -713,14 +713,22 @@
     /* ---------- конец пака «Аниме» ---------- */
   ];
 
-  /* Паки: набор дел, из которого комната выбирает случайное. */
+  /* Паки: набор дел, из которого комната выбирает случайное.
+     hiddenFrom: с этого момента (ISO, UTC) пак не видно в лобби и его дела не выпадают в обычных комнатах.
+     Дела остаются в архиве, админ видит их в редакторе и в тестовой комнате. Чтобы вернуть пак, сдвиньте дату. */
   const PACKS = [
     { id: 'main', title: 'Основной', desc: 'Убийца и сообщник, разные места и эпохи.', icon: 'random' },
-    { id: 'halloween', title: 'Хеллоуин', desc: 'Убийца оставляет на жертве свою визитную карточку.', icon: 'pumpkin' },
+    { id: 'halloween', title: 'Хеллоуин', desc: 'Убийца оставляет на жертве свою визитную карточку.', icon: 'pumpkin', hiddenFrom: '2026-11-07T21:00:00Z' }, // 8 ноября 00:00 по Москве
     { id: 'onair', title: 'В эфире', desc: 'Наши дни: реалити-шоу, стримы, стартапы и вернисажи.', icon: 'phone' },
     { id: 'anime', title: 'Аниме', desc: 'Убийства в мирах любимых аниме. Играете собой, роли и приметы из этого мира.', icon: 'sakura' },
   ];
   CASES.forEach((c) => { c.pack = c.pack || 'main'; });
+  /** Пак скрыт из общего доступа на момент now (мс). Неизвестный пак не скрыт. */
+  function packHidden(packId, now = Date.now()) {
+    const p = PACKS.find((x) => x.id === packId);
+    const t = p && p.hiddenFrom ? Date.parse(p.hiddenFrom) : NaN;
+    return Number.isFinite(t) && now >= t;
+  }
   const PRO_SKILLS = ['quiet', 'strong', 'tools', 'french'];
   /* Своё наполнение каждого дела: приметы для особенностей и улик, формулировки улик для профессий, связи, мотивы, тайны. */
   CASES.forEach((c) => {
@@ -850,5 +858,5 @@
 
   const LEGACY_IDS = ['mansion', 'train', 'corporate', 'yacht'];
 
-  return { CASES, PACKS, RETIRED_IDS, PACK_REV, ICONS, LEGACY_IDS, TEXT_REV, byId, mergeBuiltins, validateCase, parseProfessions, professionsToText };
+  return { CASES, PACKS, packHidden, RETIRED_IDS, PACK_REV, ICONS, LEGACY_IDS, TEXT_REV, byId, mergeBuiltins, validateCase, parseProfessions, professionsToText };
 });

@@ -76,6 +76,11 @@
     }
     cases() { return this.store.getCases(); }
     enabledCases() { return this.cases().filter((c) => c.enabled !== false); }
+    /** Пак виден комнате: скрытые по дате паки остаются только в тестовых комнатах админа. */
+    _packOpen(room, packId) { return !!(room && room.test) || !Cases.packHidden(packId || 'main', this.now()); }
+    /** Дела, которые эта комната может получить или выбрать. */
+    roomCases(room) { return this.enabledCases().filter((c) => this._packOpen(room, c.pack)); }
+    _roomPack(room) { return this._packOpen(room, room.pack) ? room.pack || 'main' : 'main'; }
     roomOf(token) { const code = this.tokens.get(token); return code ? this.rooms.get(code) || null : null; }
     _room(code) { const r = this.rooms.get(normalizeCode(code)); if (!r) fail('not_found', 'Комната с таким кодом не найдена.'); return r; }
     _me(room, token) { const p = room.players.find((x) => x.token === token && !x.left); if (!p) fail('not_member', 'Вы не в этой комнате.'); return p; }
@@ -325,7 +330,7 @@
       const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
       this._host(room, token);
       if (room.status !== 'lobby') fail('in_progress', 'Дело уже начато.');
-      if (caseId !== 'random' && !Cases.byId(caseId, this.enabledCases())) fail('bad_case', 'Такого дела нет в архиве.');
+      if (caseId !== 'random' && !Cases.byId(caseId, this.roomCases(room))) fail('bad_case', 'Такого дела нет в архиве.');
       room.caseChoice = caseId;
       this.notify(room);
     }
@@ -333,12 +338,12 @@
       const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
       this._host(room, token);
       if (room.status !== 'lobby') fail('in_progress', 'Дело уже начато.');
-      if (!Cases.PACKS.some((p) => p.id === packId) || !this._packCases(packId).length) fail('bad_pack', 'Такого пака нет или в нём нет дел.');
+      if (!Cases.PACKS.some((p) => p.id === packId) || !this._packOpen(room, packId) || !this._packCases(packId, room).length) fail('bad_pack', 'Такого пака нет или в нём нет дел.');
       room.pack = packId;
       room.caseChoice = 'random';
       this.notify(room);
     }
-    _packCases(packId) { return this.enabledCases().filter((c) => (c.pack || 'main') === packId); }
+    _packCases(packId, room) { return this.roomCases(room).filter((c) => (c.pack || 'main') === packId); }
     ev_room_setting(token, { key, value }) {
       const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
       this._host(room, token);
@@ -417,9 +422,9 @@
     }
 
     _pickCase(room) {
-      const all = this.enabledCases();
+      const all = this.roomCases(room);
       if (!all.length) fail('no_cases', 'В архиве нет ни одного включённого дела.');
-      const inPack = this._packCases(room.pack || 'main');
+      const inPack = this._packCases(this._roomPack(room), room);
       const pool = inPack.length ? inPack : all;
       const chosen = room.caseChoice !== 'random' && Cases.byId(room.caseChoice, all);
       if (chosen) return { c: chosen, random: false };
@@ -508,7 +513,7 @@
       const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
       this._host(room, token);
       if (room.status !== 'playing' || !room.game || room.game.phase !== 'brief') fail('in_progress', 'Дело можно сменить только на вводной, до первой улики.');
-      const all = this.enabledCases();
+      const all = this.roomCases(room);
       if (caseId !== 'random' && !Cases.byId(caseId, all)) fail('bad_case', 'Такого дела нет в архиве.');
       if (caseId === room.lastCaseId) fail('same_case', 'Это дело уже открыто.');
       room.caseChoice = caseId === 'random' ? 'random' : caseId;
@@ -664,15 +669,15 @@
       const meId = as && room.test && admin && room.game && room.game.players[as] ? as : me.id;
       const vis = room.players.filter((p) => !p.left || room.status === 'playing');
       return {
-        serverNow: this.now(), code: room.code, status: room.status, hostId: room.hostId, caseChoice: room.caseChoice, pack: room.pack || 'main', settings: Object.assign({}, room.settings),
+        serverNow: this.now(), code: room.code, status: room.status, hostId: room.hostId, caseChoice: room.caseChoice, pack: this._roomPack(room), settings: Object.assign({}, room.settings),
         test: room.test, isAdmin: admin, meId, realMeId: me.id, speed: room.settings.speed,
         watching, watchers: this._watchers(room).filter((w) => w.connected).length, seatsLeft: Math.max(0, MAX_PLAYERS - room.players.filter((p) => !p.left).length),
         players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, photo: this.photoOf(p), ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
         rules: { min: minOf(room), max: isSmall(room) ? SMALL_MAX : MAX_PLAYERS, small: isSmall(room), accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
-        packs: Cases.PACKS.map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id).length })),
+        packs: Cases.PACKS.filter((p) => this._packOpen(room, p.id)).map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id, room).length })),
         // Список дел нужен ведущему для выбора: в лобби и на вводной. В партии он только раздувал каждое обновление.
-        cases: watching ? [] : room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.enabledCases().map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
+        cases: watching ? [] : room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.roomCases(room).map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
         playedCases: (room.playedCases || []).slice(),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,
@@ -711,7 +716,7 @@
     }
     _sanitizeChoices() {
       for (const room of this.rooms.values()) {
-        if (room.status === 'lobby' && room.caseChoice !== 'random' && !Cases.byId(room.caseChoice, this.enabledCases())) room.caseChoice = 'random';
+        if (room.status === 'lobby' && room.caseChoice !== 'random' && !Cases.byId(room.caseChoice, this.roomCases(room))) room.caseChoice = 'random';
         if (room.status === 'lobby') this.notify(room);
       }
     }
