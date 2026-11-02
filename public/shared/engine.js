@@ -815,15 +815,7 @@
 
     const awards = computeAwards(game);
     const rank = ids.slice().sort((a, b) => total[b] - total[a]);
-    const chronology = ids.map((id) => {
-      const p = P(game, id);
-      return {
-        id, name: p.name, role: p.role, claim: p.card.alibi.claim, real: p.card.alibi.real, lied: lies(p),
-        secret: secretText(game, p), goal: goalText(game, p), goalDone: !!p.goalDone, profession: p.card.profession,
-        habit: p.card.habitText, relation: p.card.relation, motive: p.card.motive, witnesses: p.card.witnesses.map((w) => nm(game, w)),
-        out: p.status === 'out', tags: p.card.tags,
-      };
-    });
+    const chronology = chronologyOf(game);
     return {
       gang: !!game.gang, winner, reason: game.verdict.reason, kickedId: game.verdict.kickedId, killerId: game.killerId, accompliceId: game.accompliceId,
       scene: game.scene, murderTime: game.caseData.time, window: P(game, game.killerId).card.alibi.window,
@@ -843,6 +835,9 @@
         secret: secretText(game, p), goal: goalText(game, p), goalDone: !!p.goalDone, profession: p.card.profession,
         habit: p.card.habitText, relation: p.card.relation, motive: p.card.motive, witnesses: p.card.witnesses.map((w) => nm(game, w)),
         out: p.status === 'out', tags: p.card.tags, npc: !!p.npc,
+        // Для рассказа «Как это было»: почему человек соврал про алиби.
+        secretKind: p.card.secret.kind, secretLoc: p.card.secret.loc || null, partnerId: p.card.secret.partnerId || null,
+        secretNote: p.card.secret.kind === 'loc' ? p.card.secret.text : null,
       };
     });
   }

@@ -956,3 +956,9 @@ img.acct-av { object-fit: cover; }
 .npc-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .npc-sil { width: 36px; height: 36px; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #4a3826 0 24%, transparent 25%), radial-gradient(ellipse at 50% 100%, #4a3826 0 46%, transparent 47%), var(--panel-2); border: 1px dashed var(--line); }
 @media (max-width: 640px) { .team-row .tm .av.sm { width: 22px; height: 22px; font-size: 10px; } .team-row { gap: 2px; padding: 2px 4px; } }
+
+/* Рассказ «Как это было» на экране конца партии */
+.panel.story { margin-bottom: 16px; }
+.story-text { display: grid; gap: 8px; max-width: 760px; }
+.story-text p { margin: 0; line-height: 1.55; }
+.story-text b { color: var(--amber); font-weight: 600; }

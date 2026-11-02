@@ -152,10 +152,63 @@
           <div class="real">${c.lied ? `${L('На самом деле:')} <b>${Q(esc(c.real.loc))}</b>` : L('Алиби честное')}${c.witnesses.length ? L(', рядом: {0}', esc(c.witnesses.join(', '))) : ''}</div>
           <div class="sec"><b>${L('Секрет:')}</b> ${esc(c.secret)}</div>
           ${c.npc ? '' : `<div class="sec"><b>${L('Цель:')}</b> ${esc(c.goal)} · ${c.goalDone ? `<span style="color:var(--green)">${L('выполнена')}</span>` : L('не выполнена')}</div>`}</div>`).join('');
-      return `<div class="panel"><div class="panel-head"><h2>${L('Где все были на самом деле')}</h2><span class="count">${L('убийство в {0}', esc(R.murderTime))}</span></div>
+      return `${this.story(R, g, nm)}<div class="panel"><div class="panel-head"><h2>${L('Где все были на самом деле')}</h2><span class="count">${L('убийство в {0}', esc(R.murderTime))}</span></div>
         <div class="table-scroll"><div class="gantt" style="min-width:560px"><div class="g-axis"><span></span><div class="scale">${ticks}</div></div>${rows}</div></div>
         <div class="legend"><span>${L('Сплошная полоса: где человек был.')}</span><span>${L('Пунктир «ложь»: где он говорил, что был.')}</span><span style="color:var(--red)">${L('Красная обводка: убийца.')}</span></div>
         <div class="liars">${liars}</div></div>`;
+    },
+
+    /** «Как это было»: короткий рассказ из правды этой партии. Каждый раз свой, потому что роли и карточки раздаются заново. */
+    story(R, g, nm) {
+      const ch = {}; R.chronology.forEach((c) => { ch[c.id] = c; });
+      const loc = (l) => esc(Q(l));
+      // Профессия после имени идёт со строчной: «Мира, бухгалтер».
+      const prof = (t) => (I18N.lang === 'ru' && t ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+      const killer = ch[R.killerId], acc = R.accompliceId ? ch[R.accompliceId] : null;
+      const P = [];
+      P.push(L('Жертва: {0}. Время смерти {1}, место преступления {2}.', esc(g.case.victim), esc(R.murderTime), loc(R.scene)));
+      if (killer) {
+        P.push(L('Убийца: {0}, {1}. Мотив: {2}.', `<b>${esc(killer.name)}</b>`, esc(prof(killer.profession)), esc(killer.motive)));
+        P.push(killer.claim ? L('Убийца назвал алиби {0}, но всё это время был на месте преступления, поэтому подтвердить алиби не мог никто.', loc(killer.claim.loc)) : L('Убийца всё это время был на месте преступления.'));
+      }
+      if (acc) {
+        P.push(L('Сообщник: {0}, {1}. Мотив: {2}.', `<b>${esc(acc.name)}</b>`, esc(prof(acc.profession)), esc(acc.motive)));
+        const w = acc.witnesses.length ? ` ${L('Рядом были: {0}.', esc(acc.witnesses.join(', ')))}` : '';
+        P.push((acc.lied && acc.claim ? L('Во время убийства сообщник был здесь: {0}. А в алиби назвал {1}.', loc(acc.real.loc), loc(acc.claim.loc)) : L('Во время убийства сообщник был здесь: {0}. Алиби было честным.', loc(acc.real.loc))) + w);
+      }
+      // Какие улики на кого указывали. Подменённые идут отдельно.
+      const real = R.clues.filter((c) => !c.planted);
+      const lab = (list) => list.map((c) => `«${esc(c.label)}»`).join(', ');
+      const onK = real.filter((c) => c.fits.includes(R.killerId)), onA = acc ? real.filter((c) => c.fits.includes(R.accompliceId)) : [];
+      if (onK.length) P.push(L('На убийцу указывали улики: {0}.', lab(onK)) + (onA.length ? ` ${L('На сообщника: {0}.', lab(onA))}` : ''));
+      const doubles = R.chronology.filter((c) => c.role === 'innocent' && real.length >= 3 && real.filter((x) => x.fits.includes(c.id)).length >= 3);
+      if (doubles.length) P.push(L('Невиновные двойники, которым тоже подходили три улики: {0}.', esc(doubles.map((c) => c.name).join(', '))));
+      (R.plants || []).filter((p) => !p.overridden).forEach((p) => {
+        const c = R.clues.find((x) => x.id === p.clueId);
+        const orig = c && c.orig ? ` ${L('Настоящая улика говорила другое: {0}', esc(c.orig.text))}` : '';
+        P.push((p.by ? L('Улику подменил игрок {0}, чтобы она указала на {1}.', `<b>${esc(nm(p.by))}</b>`, esc(nm(p.targetId))) : L('Одну улику подменило само дело, чтобы она указала на {0}.', esc(nm(p.targetId)))) + orig);
+      });
+      // Невиновные, которые соврали про алиби, и почему.
+      const seen = new Set();
+      R.chronology.filter((c) => c.role === 'innocent' && c.lied).forEach((c) => {
+        if (seen.has(c.id)) return;
+        seen.add(c.id);
+        if (c.secretKind === 'meet' && ch[c.partnerId] && ch[c.partnerId].role !== 'innocent') {
+          P.push(L('{0}: ложное алиби, чтобы скрыть тайную встречу с {1}, место {2}.', esc(c.name), esc(ch[c.partnerId].name), loc(c.secretLoc)));
+        } else if (c.secretKind === 'meet' && ch[c.partnerId]) {
+          seen.add(c.partnerId);
+          P.push(L('{0} и {1} соврали про алиби: у них была тайная встреча, место {2}.', esc(c.name), esc(ch[c.partnerId].name), loc(c.secretLoc)));
+        } else if (c.secretKind === 'loc') P.push(L('{0}: ложное алиби, на самом деле {1}. Причина в секрете: {2}.', esc(c.name), loc(c.real.loc), esc(c.secretNote)));
+        else P.push(L('{0}: ложное алиби, на самом деле {1}.', esc(c.name), loc(c.real.loc)));
+      });
+      // Чем закончилось.
+      const when = (id) => { const k = (R.kicks || []).find((x) => x.id === id); return !k ? null : k.kind === 'final' ? L('в финале') : L('в раунде {0}', k.round); };
+      const end = [];
+      const wk = when(R.killerId);
+      end.push(g.small ? (wk ? L('Убийцу задержали {0}.', wk) : L('Убийца так и не попал за решётку.')) : (wk ? L('Убийцу исключили {0}.', wk) : L('Убийцу так и не исключили.')));
+      if (acc) { const wa = when(R.accompliceId); end.push(g.small ? (wa ? L('Сообщника задержали {0}.', wa) : L('Сообщник так и не попал за решётку.')) : (wa ? L('Сообщника исключили {0}.', wa) : L('Сообщника так и не исключили.'))); }
+      P.push(end.join(' '));
+      return `<div class="panel story"><div class="panel-head"><h2>${L('Как это было')}</h2></div><div class="story-text">${P.map((x) => `<p>${x}</p>`).join('')}</div></div>`;
     },
 
     score(R, nm) {
