@@ -234,6 +234,9 @@
       }
       if (ph === PH.VOTE || ph === PH.POLL || ph === PH.FINAL) {
         if (p.status !== 'active' || game.vote.votes[p.id]) return false;
+        // Первое голосование: часть ботов предпочитает никого не исключать вслепую (ручка rules.botSkip).
+        const skipP = game.settings.rules.botSkip == null ? 0.35 : game.settings.rules.botSkip;
+        if (game.vote.canSkip && game.rng.chance(skipP)) return act(game, p.id, 'vote', { target: 'skip' }, now).ok;
         const t = pickVote(game, p, game.vote.candidates, ph === PH.FINAL ? game.vote.candidates : null);
         return t ? act(game, p.id, 'vote', { target: t }, now).ok : false;
       }

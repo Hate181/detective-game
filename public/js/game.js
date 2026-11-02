@@ -355,18 +355,32 @@
 
       if (['vote', 'poll', 'final'].includes(g.phase) && g.vote) {
         const v = g.vote, final = g.phase === 'final';
-        const title = this.small ? (v.runoff ? L('Ничья. Кого задерживаем?') : L('Кого задерживаем?')) : g.phase === 'poll' ? (g.gang ? L('Кто убийца и сообщник?') : L('Кто убийца?')) : final ? L('Кого исключить окончательно?') : v.runoff ? L('Ничья. Кого исключаем?') : L('Кого исключаем?');
-        const sub = this.small ? (v.runoff ? L('Голоса разделились. Выбор только между теми, кто набрал поровну.') : L('Задержать придётся одного. {0}', g.small.wrongOut ? L('Ещё один невиновный за решёткой, и преступники уйдут.') : L('Двое невиновных за решёткой, и преступники уйдут.'))) : g.phase === 'poll' ? (g.gang ? L('Опрос тайный. Трое с наибольшим числом голосов получат слово защиты.') : L('Опрос тайный. Двое с наибольшим числом голосов получат слово защиты.')) : final ? (g.gang && g.players.filter((p) => p.status === 'active').length > 3 ? L('Исключённого не вернуть. Осталось исключений: {0}, а вместе с ними решится исход дела.', g.kicksLeft) : g.gang ? L('Решающее голосование. Исключённого не вернуть, и сразу после него решится исход дела.') : L('Последний выбор. Исключённого не вернуть, а вместе с ним решится исход дела.')) : v.runoff ? L('Голоса разделились. Выбор только между теми, кто набрал поровну.') : L('Исключить придётся одного. Голос можно поменять до подведения итога.');
+        const title = this.small ? (v.runoff ? L('Ничья. Кого задерживаем?') : L('Кого задерживаем?')) : g.phase === 'poll' ? (g.gang ? L('Кто убийца и сообщник?') : L('Кто убийца?')) : final ? L('Кого исключить окончательно?') : v.runoff ? L('Ничья. Кого исключаем?') : v.second ? L('Кого исключаем вторым?') : L('Кого исключаем?');
+        const sub = this.small ? (v.runoff ? L('Голоса разделились. Выбор только между теми, кто набрал поровну.') : L('Задержать придётся одного. {0}', g.small.wrongOut ? L('Ещё один невиновный за решёткой, и преступники уйдут.') : L('Двое невиновных за решёткой, и преступники уйдут.'))) : g.phase === 'poll' ? (g.gang ? L('Опрос тайный. Трое с наибольшим числом голосов получат слово защиты.') : L('Опрос тайный. Двое с наибольшим числом голосов получат слово защиты.')) : final ? (g.gang && g.players.filter((p) => p.status === 'active').length > 3 ? L('Исключённого не вернуть. Осталось исключений: {0}, а вместе с ними решится исход дела.', g.kicksLeft) : g.gang ? L('Решающее голосование. Исключённого не вернуть, и сразу после него решится исход дела.') : L('Последний выбор. Исключённого не вернуть, а вместе с ним решится исход дела.')) : v.runoff ? (v.canSkip ? L('Голоса разделились. Выбор между теми, кто набрал поровну, и «Никого не исключать».') : L('Голоса разделились. Выбор только между теми, кто набрал поровну.'))
+          : v.canSkip ? L('Можно никого не исключать. Тогда во втором раунде исключат двоих.')
+          : v.second ? L('В первом раунде никого не исключили, поэтому сейчас второе исключение.')
+          : g.roundKicks > 1 ? L('В этом раунде исключат двоих: сначала одного, потом второго.')
+          : L('Исключить придётся одного. Голос можно поменять до подведения итога.');
         const cands = v.candidates.filter((id) => id !== me.id);
         const can = me.can.vote;
         const grid = can ? `<div class="vote-grid">${cands.map((id) => {
           const p = this.byId[id];
           const hits = p.tags.filter((t) => g.clues.some((c) => c.tag === t.key)).map((t) => t.label);
           return `<button class="vote-btn ${final ? 'big' : ''} ${v.my === id ? 'on' : ''}" data-a="vote" data-id="${esc(id)}">${avatar(p.name, this.idx[id])}<span><b>${esc(p.name)}</b>${hits.length ? `<small>${L('совпало с уликой: {0}', esc(hits.join(', ')))}</small>` : ''}</span></button>`;
-        }).join('')}</div>` : wait(meOut || this.watch ? L('Голосуют те, кто ещё в игре') : L('Голоса принимаются'));
+        }).join('')}${v.canSkip ? `<button class="vote-btn skip ${v.my === 'skip' ? 'on' : ''}" data-a="vote" data-id="skip"><span class="av skip-av">0</span><span><b>${L('Никого не исключать')}</b><small>${L('Во втором раунде исключат двоих')}</small></span></button>` : ''}</div>` : wait(meOut || this.watch ? L('Голосуют те, кто ещё в игре') : L('Голоса принимаются'));
         const vp = this.people().filter((p) => this.small || p.status === 'active').map((p) => `<span title="${esc(p.name)}">${this.av(p.id, p.voted ? 'on' : '')}</span>`).join('');
         return `<div class="s-head"><p class="eyebrow">${g.phase === 'poll' ? L('Финал · опрос') : final ? L('Финал') : L('Раунд {0}', g.round)}</p><h3>${title}</h3><p>${esc(sub)}</p></div>${grid}
-          <div class="vp"><span>${L('Проголосовали {0} из {1}:', v.voted.length, nAct)}</span>${vp}</div>${v.my ? `<p class="muted">${L('Ваш голос: {0}.', esc(this.byId[v.my].name))}</p>` : can ? `<p class="muted">${v.candidates.includes(me.id) ? L('Не выберете, и голос уйдёт против вас.') : L('Не выберете, и голос пропадёт.')}</p>` : ''}`;
+          <div class="vp"><span>${L('Проголосовали {0} из {1}:', v.voted.length, nAct)}</span>${vp}</div>${v.my ? `<p class="muted">${L('Ваш голос: {0}.', v.my === 'skip' ? L('никого не исключать') : esc(this.byId[v.my].name))}</p>` : can ? `<p class="muted">${v.candidates.includes(me.id) ? L('Не выберете, и голос уйдёт против вас.') : L('Не выберете, и голос пропадёт.')}</p>` : ''}`;
+      }
+
+      if (g.phase === 'result' && g.skip) {
+        const sk = g.skip;
+        const max = Math.max(1, sk.skip, ...Object.values(sk.count));
+        const rows = [`<div class="tr top"><span>${L('Никого не исключать')}</span><span class="bar"><i style="width:${Math.round(100 * sk.skip / max)}%"></i></span><b>${sk.skip}</b></div>`]
+          .concat(Object.keys(sk.count).filter((id) => sk.count[id] > 0).sort((a, b) => sk.count[b] - sk.count[a]).map((id) => `<div class="tr"><span>${esc(this.byId[id].name)}</span><span class="bar"><i style="width:${Math.round(100 * sk.count[id] / max)}%"></i></span><b>${sk.count[id]}</b></div>`)).join('');
+        return `<div class="s-head"><p class="eyebrow">${L('Раунд {0} из {1}', g.round, g.rounds)}</p><h3>${L('Никого не исключили')}</h3><p>${L('Во втором раунде исключат двоих, одного за другим.')}</p></div>
+          <div class="tally">${rows}</div>
+          <div class="talk-hint">${icon('mic')}<span>${L('Голосование анонимное. Обсудите итог голосом: кто и почему мог голосовать против.')}</span></div>`;
       }
 
       if (g.phase === 'result') {
@@ -383,7 +397,8 @@
         const rows = Object.keys(k.count).sort((a, b) => k.count[b] - k.count[a]).map((id) => {
           return `<div class="tr ${id === k.id ? 'top' : ''}"><span>${esc(this.byId[id].name)}</span><span class="bar"><i style="width:${Math.round(100 * k.count[id] / max)}%"></i></span><b>${k.count[id]}</b></div>`;
         }).join('');
-        return `<div class="s-head"><p class="eyebrow">${L('Раунд {0} из {1}', k.round, g.rounds)}</p><h3>${esc(p.name)} ${this.small ? L('за решёткой') : L('вне игры')}</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}</p></div>
+        const more = !this.small && g.roundKicks > 0 ? ` ${L('Дальше второе исключение в этом раунде.')}` : '';
+        return `<div class="s-head"><p class="eyebrow">${L('Раунд {0} из {1}', k.round, g.rounds)}</p><h3>${esc(p.name)} ${this.small ? L('за решёткой') : L('вне игры')}</h3><p>${esc(VIA[k.via] || '')} ${esc(after)}${esc(more)}</p></div>
           <div class="kick-card"><div class="flip"><div class="flip-inner"><div class="paper"><span class="label">${hidden ? (this.small ? L('Задержан') : L('Вне игры')) : L('Роль раскрыта')}</span><h3>${esc(p.name)}</h3><span class="stamp">${role}</span>
             ${p.revealed.profession ? `<p style="margin-top:8px"><b>${esc(p.revealed.profession.text)}</b></p>` : ''}${p.revealed.motive ? `<p style="font-size:14px;margin-top:6px">${L('Мотив: {0}', esc(p.revealed.motive.text))}</p>` : ''}</div></div></div>
             <div class="tally">${rows}</div></div>
@@ -565,6 +580,7 @@
         const [label, sub] = sm[g.phase] || HOST_BTN[g.phase] || [L('Дальше'), ''];
         let next = label;
         if (g.phase === 'turns' && g.turn && g.turn.idx + 1 >= g.turn.total) next = L('К обсуждению');
+        if (g.phase === 'result' && !g.skip && g.roundKicks > 0) next = L('Ко второму голосованию');
         if (g.phase === 'accuse' && g.accuse) next = g.accuse.done || g.accuse.idx + 1 >= g.accuse.total ? (g.accuse.done ? L('К голосованию') : L('Завершить обвинения')) : L('Следующий');
         const modeLbl = g.manual ? L('Перейти на таймеры') : L('Вернуть ручное ведение');
         setHtml(host, `<div><div class="who"><b>${L('Вы ведёте партию')}</b><span>${esc(status || sub)}${g.manual ? '' : L(' · сейчас идёт по таймерам')}</span></div>

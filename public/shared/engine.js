@@ -271,6 +271,9 @@
 
   function startRound(game, now) {
     game.round += 1;
+    // Сколько исключений в этом раунде: обычно одно, после пропуска в первом раунде два.
+    game.roundKicks = 1;
+    if (!game.small && game.kicksDue && game.round < ROUNDS) { game.roundKicks += game.kicksDue; game.kicksDue = 0; }
     // Подменённая улика приходит по расписанию, как настоящая: по номеру и раунду её не отличить.
     if (game.small && game.autoSwapRound === game.round) autoSwap(game);
     const fresh = game.clues.filter((c) => c.revealedRound === null);
@@ -478,8 +481,15 @@
   function startVote(game, now, kind, extra = {}) {
     const candidates = extra.candidates || active(game).map((p) => p.id);
     setPhase(game, now, VOTE_PH[kind], extra.runoff ? 'poll' : VOTE_KEY[kind]);
-    game.vote = { kind, candidates, votes: {}, runoff: !!extra.runoff, count: null };
-    const text = kind === 'kick' && game.small
+    // Первое голосование большого стола можно закончить без исключения: тогда во втором раунде исключают двоих.
+    const canSkip = kind === 'kick' && !game.small && game.settings.rules.skipFirst !== false
+      && (extra.runoff ? !!extra.canSkip : game.round === 1 && !extra.second);
+    game.vote = { kind, candidates, votes: {}, runoff: !!extra.runoff, count: null, canSkip, second: !!extra.second, skipCount: 0 };
+    const text = kind === 'kick' && canSkip && !extra.runoff
+      ? 'Голосование. Каждый указывает, кого исключить, или голосует «Никого не исключать». Если никого не исключат, во втором раунде исключат двоих.'
+      : kind === 'kick' && extra.second && !extra.runoff ? 'Второе исключение в этом раунде. Каждый указывает, кого исключить.'
+      : kind === 'kick' && !game.small && game.roundKicks > 1 && !extra.runoff ? 'Голосование. Каждый указывает, кого исключить. В этом раунде исключат двоих: сначала одного, потом второго.'
+      : kind === 'kick' && game.small
       ? (extra.runoff ? `Ничья. Переголосование между: ${candidates.map((id) => nm(game, id)).join(', ')}.` : 'Голосование. Каждый указывает, кого из персонажей задержать. Задержать придётся одного.')
       : kind === 'kick'
       ? (extra.runoff ? `Ничья. Переголосование между: ${candidates.map((id) => nm(game, id)).join(', ')}.` : `Голосование. Каждый указывает, кого исключить. Исключить придётся одного.`)
@@ -495,6 +505,8 @@
     Object.entries(votes).forEach(([by, t]) => { if (count[t] !== undefined && P(game, by) && P(game, by).status === 'active' && !P(game, by).npc) count[t] += 1; });
     return count;
   }
+  const SKIP = 'skip';
+  const skipVotes = (game, v) => Object.entries(v.votes).filter(([by, t]) => t === SKIP && P(game, by) && P(game, by).status === 'active' && !P(game, by).npc).length;
 
   // Кто не проголосовал, голосует против себя. Если его нет среди кандидатов (переголосование, финал), голос пропадает.
   function fillMissingVotes(game, v) {
@@ -509,11 +521,11 @@
   function logVotes(game, now, v) {
     const auto = v.auto || [];
     const votes = Object.entries(v.votes).filter(([by]) => P(game, by).status === 'active');
-    votes.filter(([by]) => !auto.includes(by)).forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
-    game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), auto: auto.slice(), count: Object.assign({}, v.count) });
+    votes.filter(([by, target]) => !auto.includes(by) && target !== SKIP).forEach(([by, target]) => game.suspicions.push({ t: now, by, target, kind: v.kind }));
+    game.votesLog.push({ t: now, round: game.round, kind: v.kind, runoff: v.runoff, votes: Object.fromEntries(votes), auto: auto.slice(), count: Object.assign({}, v.count), skip: v.canSkip ? v.skipCount : undefined });
     // Голосование анонимное: в ленту идут только итоги, кто за кого, не показываем ни в игре, ни после.
     const lines = v.candidates.filter((id) => v.count[id] > 0).sort((a, b) => v.count[b] - v.count[a]).map((id) => `${nm(game, id)}: ${v.count[id]}`);
-    const skipped = auto.length ? ` Не выбрали: ${auto.length}.` : '';
+    const skipped = (v.canSkip && v.skipCount ? ` Никого не исключать: ${v.skipCount}.` : '') + (auto.length ? ` Не выбрали: ${auto.length}.` : '');
     const list = lines.join(', ');
     const head = v.kind === 'poll' ? (list ? `Итоги опроса: ${list}.` : 'Итоги опроса: никто не проголосовал.') : (list ? `Итоги голосования: ${list}.` : 'Итоги голосования: никто не проголосовал.');
     pushFeed(game, now, { kind: 'vote', text: head + skipped });
@@ -523,11 +535,29 @@
     const v = game.vote;
     fillMissingVotes(game, v);
     v.count = voteCounts(game, v.votes, v.candidates);
+    v.skipCount = v.canSkip ? skipVotes(game, v) : 0;
     logVotes(game, now, v);
-    const max = Math.max(...v.candidates.map((id) => v.count[id]));
+    const top = Math.max(...v.candidates.map((id) => v.count[id]));
+    const max = Math.max(top, v.skipCount);
     const leaders = v.candidates.filter((id) => v.count[id] === max);
-    if (leaders.length > 1 && max > 0 && !v.runoff) return startVote(game, now, 'kick', { candidates: leaders, runoff: true });
+    if (v.canSkip && max > 0 && v.skipCount === max) {
+      // «Никого не исключать» впереди одно: никого. Наравне с игроками: переголосование, а повторная ничья тоже значит никого.
+      if (!leaders.length || v.runoff) return skipKick(game, now);
+      return startVote(game, now, 'kick', { candidates: leaders, runoff: true, canSkip: true, second: v.second });
+    }
+    if (leaders.length > 1 && max > 0 && !v.runoff) return startVote(game, now, 'kick', { candidates: leaders, runoff: true, second: v.second });
     settleKick(game, now, leaders, leaders.length > 1 ? 'random' : v.runoff ? 'runoff' : 'vote');
+  }
+
+  /** Первое голосование решило никого не исключать: исключение переносится во второй раунд. */
+  function skipKick(game, now) {
+    const v = game.vote;
+    game.kicksDue = (game.kicksDue || 0) + 1;
+    game.roundKicks = 0;
+    game.skip = { round: game.round, count: Object.assign({}, v.count), skip: v.skipCount };
+    game.decisive = { kind: v.kind, votes: Object.assign({}, v.votes) };
+    pushFeed(game, now, { kind: 'vote', text: 'Решено никого не исключать. Во втором раунде исключат двоих.' });
+    setPhase(game, now, PH.RESULT, 'result');
   }
 
   /** Ничья, которую голосованием не разрешить: «Полиция решает, кого задержать». Все видят рулетку,
@@ -614,6 +644,7 @@
     p.status = 'out';
     const entry = { id, kind: v.kind, via, round: game.round, t: now, role: p.role, count: Object.assign({}, v.count), votes: Object.assign({}, v.votes) };
     game.kicks.push(entry);
+    if (v.kind === 'kick') game.roundKicks = Math.max(0, (game.roundKicks || 0) - 1);
     game.decisive = { kind: v.kind, votes: Object.assign({}, v.votes) };
     const roleText = p.role === 'killer' ? 'убийца' : p.role === 'accomplice' ? 'сообщник убийцы' : 'невиновный';
     const word = game.small ? 'Задержан' : 'Исключён';
@@ -684,7 +715,9 @@
 
   function afterResult(game, now) {
     // Дальше всегда идёт следующий раунд; когда людей мало, сразу финал.
-    if (!game.small && active(game).length <= ((game.settings.rules && game.settings.rules.finaleAt) || 3) && game.round < ROUNDS) game.round = ROUNDS - 1;
+    if (!game.small && active(game).length <= ((game.settings.rules && game.settings.rules.finaleAt) || 3) && game.round < ROUNDS) { game.round = ROUNDS - 1; game.roundKicks = 0; }
+    // Перенесённое исключение: второе голосование в том же раунде, сразу после первого.
+    if (game.roundKicks > 0 && game.round < ROUNDS) return startVote(game, now, 'kick', { second: true });
     startRound(game, now);
   }
 
@@ -961,7 +994,8 @@
     if (p.npc) bad('Персонажи не голосуют.');
     const v = game.vote;
     if (game.overlay) bad('Подождите, идёт другое действие.');
-    if (!v.candidates.includes(pl.target) || pl.target === p.id) bad('Выберите другого игрока из списка.');
+    const skipOk = pl.target === SKIP && v.canSkip;
+    if (!skipOk && (!v.candidates.includes(pl.target) || pl.target === p.id)) bad('Выберите другого игрока из списка.');
     v.votes[p.id] = pl.target;
   };
 
@@ -1304,7 +1338,9 @@
       players, overlay: ov ? { type: ov.type, endsAt: ov.endsAt, startedAt: ov.startedAt, nomineeId: ov.nomineeId, nominees: ov.nominees || null, pending: ov.pending || null, candidates: ov.candidates, winnerId: ov.winnerId, options: me && ov.pending && ov.pending.includes(me.id) ? ov.options : null } : null,
       accuse: acc ? { speakerId: acc.speakerId, idx: acc.idx, total: acc.queue.length, queue: acc.queue, done: acc.done } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
-      vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
+      roundKicks: game.small ? 1 : game.roundKicks || 0,
+      skip: game.skip && game.phase === PH.RESULT && game.skip.round === game.round && !(game.kicks.length && game.kicks[game.kicks.length - 1].round === game.round) ? { count: game.skip.count, skip: game.skip.skip } : null,
+      vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, canSkip: !!game.vote.canSkip, second: !!game.vote.second, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
       clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: CC(game).TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id && !x.overridden)), checked: labVerdict(me, c) })),
       feed: game.feed.slice(-160).map((f) => ({ id: f.id, t: f.t, kind: f.kind, text: f.text, who: f.who, clueId: f.clueId, trait: f.trait })),
       poll: game.poll ? { finalists: game.poll.finalists } : null,
