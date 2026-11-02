@@ -244,7 +244,7 @@ ${contactsSec(10)}`;
     },
     unmount() {
       if (this.root && this.onClick) this.root.removeEventListener('click', this.onClick);
-      document.title = 'Detective Game · Убийца среди вас';
+      document.title = UI.HOME_TITLE;
     },
   };
 

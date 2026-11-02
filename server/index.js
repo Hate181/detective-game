@@ -76,6 +76,14 @@ const server = http.createServer(app);
 const PING_TIMEOUT_MS = Number(process.env.PING_TIMEOUT_MS || 70000);
 const io = new Server(server, { serveClient: false, perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { memLevel: 4, level: 6 } }, cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingInterval: 25000, pingTimeout: PING_TIMEOUT_MS });
 
+// Главная, правила и документы с тегами для поисковиков, robots.txt и sitemap.xml.
+require('./seo.js').createSeo({
+  publicUrl: process.env.PUBLIC_URL,
+  contact: process.env.CONTACT_EMAIL || 'support@detective-game.org',
+  community: process.env.DISCORD_SERVER_URL || 'https://discord.gg/hfWsKkGVH',
+  googleVerify: process.env.GOOGLE_SITE_VERIFICATION,
+  yandexVerify: process.env.YANDEX_VERIFICATION,
+}).mount(app);
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: hub.rooms.size, sockets: io.engine.clientsCount, uptime: Math.round(process.uptime()) }));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   extensions: ['html'],
@@ -85,8 +93,6 @@ const SOCKET_CLIENT = path.join(path.dirname(require.resolve('socket.io')), '..'
 app.get('/vendor/socket.io.min.js', (req, res) => res.sendFile(SOCKET_CLIENT));
 app.get('/api/cases', (req, res) => res.json(cases.filter((c) => c.enabled !== false)));
 app.get('/r/:code', (req, res) => res.redirect(`/#/room/${normalizeCode(req.params.code)}`));
-// Короткие адреса для правил и документов: открываются внутри приложения.
-for (const page of ['rules', 'contacts', 'privacy', 'cookies']) app.get('/' + page, (req, res) => res.redirect(`/#/${page}`));
 
 const hub = new Hub({
   store,
