@@ -881,7 +881,7 @@
     const t = EN[c.id];
     const base = byId(c.id) || c;
     const out = JSON.parse(JSON.stringify(c));
-    ['title', 'short', 'victim', 'teaser', 'scene'].forEach((k) => { if (t[k]) out[k] = t[k]; });
+    ['title', 'short', 'victim', 'teaser', 'scene', 'year'].forEach((k) => { if (t[k]) out[k] = t[k]; });
     if (Array.isArray(t.locations) && t.locations.length) out.locations = t.locations.slice();
     // Профессии: английские имена по порядку, метки берём из дела (их мог поправить админ), а если список разошёлся, из встроенного.
     if (Array.isArray(t.professions) && t.professions.length) {
