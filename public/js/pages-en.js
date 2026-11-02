@@ -30,8 +30,9 @@
   <li><b>Statements.</b> One by one, everyone reveals one line of their card and talks about themselves. Each round the order starts from a new seat.</li>
   <li><b>Discussion.</b> Free talk. This is when cards are played.</li>
   <li><b>Accusations.</b> In the same order as the statements, everyone gets a minute to say who they suspect and why.</li>
-  <li><b>Vote.</b> Anonymous: you only see how many votes each player got. One person always leaves the game.</li>
+  <li><b>Vote.</b> Anonymous: you only see how many votes each player got. One person leaves the game.</li>
 </ol>
+<p>In round one only, you can vote "Vote nobody out". If that option gets the most votes, nobody leaves, but round two has two votes in a row and two players go. If it ties with a player, the runoff is between them and this option, and a second tie also means nobody goes.</p>
 <p>If there's a tie, there's a runoff between the leaders. If that's a tie too, the police decide: a roulette spins on everyone's screen, and whoever it stops on is out. Before the roulette, each of the leaders who holds a Lawyer card is offered the chance to play it.</p>
 <p>If you don't vote in time, your vote goes against yourself. If you aren't one of the candidates in a runoff or the final vote, it is simply lost.</p>
 <p>The card of a player who is out stays closed: all anyone knows is what they managed to reveal. From then on they only watch. If three or fewer players are left at the table, the finale starts straight away.</p></section>
