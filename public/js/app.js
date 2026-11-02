@@ -9,8 +9,11 @@
   const App = { state: null, current: null, key: null, route: { name: 'home' } };
   window.App = App;
 
+  // Правила и документы открываются и по обычному адресу (/rules): его сервер отдаёт поисковикам с готовым текстом.
+  const PATH_PAGE = /^\/(rules|contacts|privacy|cookies)\/?$/;
   function parseRoute() {
-    const h = (location.hash || '#/').replace(/^#/, '');
+    const bare = !location.hash || location.hash === '#';
+    const h = bare && PATH_PAGE.test(location.pathname) ? location.pathname.replace(/\/$/, '') : (location.hash || '#/').replace(/^#/, '');
     const m = h.match(/^\/room\/([A-Za-z0-9]+)/);
     if (h.startsWith('/admin')) return { name: 'admin' };
     if (m) return { name: 'room', code: m[1].toUpperCase() };
@@ -174,7 +177,7 @@
   function renderFooter() {
     const el = document.getElementById('footMail');
     const mail = Net.me && Net.me.contact;
-    el.innerHTML = mail ? `Почта для связи: <a href="mailto:${UI.esc(mail)}">${UI.esc(mail)}</a>` : 'Почта для связи: <a href="#/contacts">контакты</a>';
+    el.innerHTML = mail ? `Почта для связи: <a href="mailto:${UI.esc(mail)}">${UI.esc(mail)}</a>` : 'Почта для связи: <a href="/contacts">контакты</a>';
   }
 
   /* Плашка про cookie: показывается на главной и страницах документов, пока игрок не нажал «Хорошо». В лобби и игре её не видно. */
@@ -190,6 +193,17 @@
   }
   Net.on('me', () => { renderAccount(); renderFooter(); render(); });
   window.addEventListener('hashchange', render);
+  // Ссылки шапки и подвала ведут на обычные адреса (их видят поисковики). Внутри приложения переходим по решётке
+  // без перезагрузки, чтобы не рвать связь с комнатой.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target) return;
+    const href = a.getAttribute('href');
+    if (href !== '/' && !PATH_PAGE.test(href)) return;
+    if (location.pathname !== '/') return;
+    e.preventDefault();
+    location.hash = '#' + href;
+  });
   renderAccount();
   renderFooter();
 

@@ -268,5 +268,6 @@
     };
   }
 
-  window.UI = { esc, $, $$, icon, ICONS, hueOf, initial, avatar, fmtClock, setHtml, toast, fail, modal, choose, pickCase, ask, confirmBox, copyText, makeLog, Content };
+  const HOME_TITLE = 'Detective Game: онлайн-игра в детектив для компании';
+  window.UI = { HOME_TITLE, esc, $, $$, icon, ICONS, hueOf, initial, avatar, fmtClock, setHtml, toast, fail, modal, choose, pickCase, ask, confirmBox, copyText, makeLog, Content };
 })();

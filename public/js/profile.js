@@ -194,7 +194,7 @@
         if (ok) Net.logout();
       }
     },
-    unmount() { document.title = 'Detective Game · Убийца среди вас'; },
+    unmount() { document.title = UI.HOME_TITLE; },
   };
 
   window.Screens = window.Screens || {};
