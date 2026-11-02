@@ -1080,6 +1080,7 @@
     "Итоги опроса: никто не проголосовал. Не выбрали: {0}.": "Poll results: nobody voted. Didn't vote: {0}.",
     "Голосование. Каждый указывает, кого исключить, или голосует «Никого не исключать». Если никого не исключат, во втором раунде исключат двоих.": "Vote. Everyone picks who to vote out, or votes \"Vote nobody out\". If nobody goes, two players go in round two.",
     "Второе исключение в этом раунде. Каждый указывает, кого исключить.": "Second vote of this round. Everyone picks who to vote out.",
+    "Голосование. Каждый указывает, кого исключить. В этом раунде исключат двоих: сначала одного, потом второго.": "Vote. Everyone picks who to vote out. Two players go this round: one now, then another.",
     "Решено никого не исключать. Во втором раунде исключат двоих.": "Nobody is voted out. Two players will go in round two.",
     "Итоги голосования: {0}. Никого не исключать: {1}.": "Vote results: {0}. Nobody out: {1}.",
     "Итоги голосования: {0}. Никого не исключать: {1}. Не выбрали: {2}.": "Vote results: {0}. Nobody out: {1}. Didn't vote: {2}.",
