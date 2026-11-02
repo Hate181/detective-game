@@ -75,6 +75,11 @@ p { margin: 0; }
 .brand svg { width: 24px; height: 24px; color: var(--amber); animation: lamp 7s infinite; }
 @keyframes lamp { 0%, 100% { filter: drop-shadow(0 0 6px rgba(235, 164, 60, .7)); } 46% { filter: drop-shadow(0 0 6px rgba(235, 164, 60, .7)); } 48% { filter: drop-shadow(0 0 1px rgba(235, 164, 60, .3)); opacity: .7; } 50% { filter: drop-shadow(0 0 9px rgba(235, 164, 60, .9)); opacity: 1; } 53% { opacity: .8; } 55% { opacity: 1; } }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+.langsw { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 999px; background: rgba(233, 162, 59, .06); }
+.langsw a { min-width: 34px; padding: 6px 9px; border-radius: 999px; text-align: center; font: 600 12px/1 var(--f-mono); letter-spacing: .08em; color: var(--muted); text-decoration: none; transition: color .2s, background .2s; }
+.langsw a:hover { color: var(--text); }
+.langsw a.on { color: var(--amber-ink); background: var(--amber); }
+@media (max-width: 560px) { .topbar-right { gap: 8px; } .langsw a { min-width: 30px; padding: 6px 7px; } }
 .conn { display: inline-flex; align-items: center; gap: 8px; font: 500 11px/1 var(--f-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
 .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 .conn[data-state="on"] i { background: var(--green); }
@@ -561,6 +566,8 @@ select.input option { background: var(--panel); }
 @keyframes grow { from { transform: scaleX(0); opacity: 0; } }
 .g-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--red); box-shadow: 0 0 10px var(--red); z-index: 2; }
 .g-mark::after { content: 'убийство'; position: absolute; top: -16px; left: 4px; font: 500 10px/1 var(--f-mono); color: var(--red); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+html[lang="en"] .g-bar.ghost.false::after { content: ' lie'; }
+html[lang="en"] .g-mark::after { content: 'murder'; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 13.5px; color: var(--muted); }
 .liars { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 18px; }
 .liar { padding: 12px 14px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); display: grid; gap: 6px; }

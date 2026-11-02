@@ -1,11 +1,15 @@
 /* Тексты и справочники игры. Все формулировки без рода и в безличной форме,
    потому что одну и ту же карточку читают разные люди. */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.DetectiveContent = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content-en.js'), require('./i18n.js'));
+  else root.DetectiveContent = factory(root.DetectiveContentEn, root.I18N);
+})(typeof self !== 'undefined' ? self : this, function (EN, I18N) {
+  /* Справочник собирается отдельно для каждого языка: forLang('en') даёт те же ключи с английскими текстами
+     и свой реестр примет дел (TAGS), чтобы английские приметы не смешивались с русскими. */
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  function make(lang, O) {
   /* Теги: то, на что ссылаются улики. habit: может быть привычкой игрока (иначе только профессия). */
-  const TAGS = {
+  const TAGS = O.TAGS ? clone(O.TAGS) : {
     smoker:   { label: 'Курит', habit: 'Курит', clues: ['На месте преступления нашли свежий пепел и окурок. Преступник курит.', 'В комнате пахнет табаком, хотя сама жертва не курила. Преступник курит.', 'Под окном в траве лежат три одинаковых окурка. Преступник курит.'] },
     lefty:    { label: 'Левша', habit: 'Левша', clues: ['Удар нанесён левой рукой. Преступник левша.', 'Следы на дверной ручке оставила левая рука. Преступник левша.', 'Замок вскрыт так, как это делает левша. Преступник левша.'] },
     late:     { label: 'Полуночник', habit: 'Не спит по ночам', clues: ['Свет в окне горел до рассвета. Преступник привык не спать по ночам.', 'Преступнику было известно, что в глухой час никто не спит и не ждёт гостей. Преступник полуночник.', 'Ночной сторож слышал шаги в самый тихий час. Преступник не спит по ночам.'] },
@@ -32,7 +36,7 @@
   const TAG_KEYS = Object.keys(TAGS);
   const HABIT_TAGS = TAG_KEYS.filter((k) => TAGS[k].habit);
 
-  const TRAITS = {
+  const TRAITS = O.TRAITS ? clone(O.TRAITS) : {
     profession: 'Профессия',
     habit: 'Особенность',
     relation: 'Связь с жертвой',
@@ -48,7 +52,7 @@
   /* «Очная ставка» сверяет показания: где был, кем приходился жертве, зачем ему её смерть. Профессия и особенность сюда не входят. */
   const CONFRONT_TRAITS = ['alibi', 'relation', 'motive'];
 
-  const RELATIONS = [
+  const RELATIONS = O.RELATIONS ? clone(O.RELATIONS) : [
     'Дальнее родство по линии матери', 'Общий бизнес больше десяти лет', 'Старая дружба, давшая трещину',
     'Служба в доме жертвы', 'Долг перед жертвой', 'Деньги, которые жертва должна вернуть',
     'Давняя деловая конкуренция', 'Соседство и общие знакомые', 'Роман, закончившийся скандалом',
@@ -65,7 +69,7 @@
     'Общая страсть к коллекционированию', 'Свидетель на свадьбе жертвы', 'Давнее соперничество на выборах',
     'Неудачное сватовство, затеянное жертвой',
   ];
-  const MOTIVES = [
+  const MOTIVES = O.MOTIVES ? clone(O.MOTIVES) : [
     'Угроза разоблачения со стороны жертвы', 'Долг, который жертва требовала вернуть', 'Доля имущества по завещанию',
     'Сорванная жертвой сделка всей жизни', 'Старая неотплаченная обида', 'Компрометирующее письмо, хранившееся у жертвы',
     'Предстоящее увольнение по воле жертвы', 'Ревность к жертве', 'Присвоенная жертвой идея',
@@ -82,14 +86,14 @@
     'Жертва угрожала лишить покровительства', 'Затянувшийся спор о правах на изобретение',
     'Жертва наотрез отказалась от союза',
   ];
-  const SECRET_LOC = [
+  const SECRET_LOC = O.SECRET_LOC ? clone(O.SECRET_LOC) : [
     'подслушанный чужой разговор', 'тайный звонок шантажисту', 'спрятанная краденая вещь', 'сон на посту',
     'тайная выпивка', 'проигрыш в карты', 'прочитанные чужие письма', 'репетиция признания в одиночестве',
     'тайная встреча с журналистом', 'передача записки конкуренту', 'потайная вылазка за сигаретами', 'поиск пропавшего письма',
     'ночной обыск чужих вещей', 'тайное свидание', 'попытка вернуть долг втайне от всех', 'просмотр чужих бумаг',
     'разговор с адвокатом без свидетелей', 'сожжённые бумаги', 'встреча с неизвестным посыльным', 'тайный осмотр чужого кабинета',
   ];
-  const SECRET_PLAIN = [
+  const SECRET_PLAIN = O.SECRET_PLAIN ? clone(O.SECRET_PLAIN) : [
     'Скрытая судимость в молодости', 'Тайная работа над книгой об этой истории', 'Тайная работа на страховую компанию',
     'Серьёзные долги, о которых никто не знает', 'Поддельное рекомендательное письмо при найме', 'Многолетнее чтение чужой почты',
     'Тайные деньги от конкурентов жертвы', 'Скрытое отсутствие диплома',
@@ -101,7 +105,7 @@
     'Утаённая от семьи болезнь', 'Утаённая от компаньонов сделка', 'Скрытая связь с конкурентом',
     'Забытая подписка на неблагонадёжную газету',
   ];
-  const GENERIC_PROFESSIONS = [
+  const GENERIC_PROFESSIONS = O.GENERIC_PROFESSIONS ? clone(O.GENERIC_PROFESSIONS) : [
     { name: 'Гость дома', tags: [] }, { name: 'Старый друг семьи', tags: [] }, { name: 'Журналист', tags: ['french'] },
     { name: 'Коллекционер', tags: ['cash'] }, { name: 'Страховой агент', tags: ['safe'] }, { name: 'Сосед', tags: [] },
     { name: 'Студент', tags: ['tech'] }, { name: 'Музыкант', tags: ['quiet'] }, { name: 'Фотограф', tags: ['tech'] },
@@ -110,7 +114,7 @@
     { name: 'Инженер', tags: ['tech', 'tools'] }, { name: 'Водитель такси', tags: ['driver'] }, { name: 'Священник', tags: ['quiet'] },
   ];
 
-  const CARDS = {
+  const CARDS = O.CARDS ? clone(O.CARDS) : {
     warrant:   { name: 'Обыск', desc: 'Тайно посмотреть одну скрытую характеристику игрока.' },
     advocate:  { name: 'Адвокат', desc: 'Отменить один голос против себя, когда вас исключают.' },
     confront:  { name: 'Очная ставка', desc: 'Свести двух игроков: оба при всех раскрывают алиби, связь с жертвой или мотив, на ваш выбор.' },
@@ -122,7 +126,7 @@
   /* Сколько «Подмен» лежит в колоде. Остальные карты раздаются по кругу, «Экспертиза» и «Ложный след» приходят по ходу партии. */
   const SWAPS_IN_DECK = 2;
 
-  const AWARDS = {
+  const AWARDS = O.AWARDS ? clone(O.AWARDS) : {
     liar:     { title: 'Лучший лжец' },
     sherlock: { title: 'Шерлок' },
     self:     { title: 'Сдал себя сам' },
@@ -136,7 +140,7 @@
 
   /* Малый состав (2–5 человек): подозреваемые не игроки, а персонажи дела. Имена под эпоху дела,
      по 300 на каждую, примерно каждое восьмое шуточное: в половине дел за столом будет один такой. */
-  const NPC_NAMES = {
+  const NPC_NAMES = O.NPC_NAMES ? clone(O.NPC_NAMES) : {
     classic: [
       'Вера Лаптева', 'Оскар Линд', 'Агата Шольц', 'Савелий Грач', 'Нина Ордынская', 'Феликс Бреннер', 'Клара Майер', 'Аркадий Зорин',
       'Эльза Тамм', 'Генрих Ольсен', 'Лидия Вербицкая', 'Тимофей Кольцов', 'Ада Ланге', 'Борис Шелест', 'Ирма Фогель', 'Яков Ремез',
@@ -232,7 +236,7 @@
     ],
   };
   /* Описания карт, когда подозреваемые персонажи, а не игроки за столом. */
-  const CARDS_NPC = {
+  const CARDS_NPC = O.CARDS_NPC ? clone(O.CARDS_NPC) : {
     warrant: 'Тайно посмотреть одну скрытую строку в карточке персонажа. Увидите только вы.',
     confront: 'Свести двух персонажей: оба при всех раскрывают алиби, связь с жертвой или мотив.',
     testimony: 'Заставить персонажа при всех раскрыть конкретную строку.',
@@ -242,7 +246,7 @@
   };
 
   /* Подсказки рассказчику: о чём говорить вслух, когда открыта карточка. */
-  const PROMPTS = {
+  const PROMPTS = O.PROMPTS ? clone(O.PROMPTS) : {
     profession: 'Расскажите, чем вы занимаетесь и как это связано с этим местом.',
     habit: 'Покажите себя: когда эта привычка вас выдавала?',
     relation: 'Как вы познакомились с жертвой и что вас связывало?',
@@ -252,7 +256,7 @@
     free: 'Расскажите о себе: что делали вечером, кого видели, что насторожило.',
   };
 
-  const BOT_NAMES = ['Инспектор Грей', 'Мисс Марпл', 'Сэм Спейд', 'Вера Холодная', 'Граф Орлов', 'Доктор Ватсон', 'Ирэн Адлер', 'Филип Марлоу', 'Лиза Корф', 'Комиссар Мегрэ'];
+  const BOT_NAMES = O.BOT_NAMES ? clone(O.BOT_NAMES) : ['Инспектор Грей', 'Мисс Марпл', 'Сэм Спейд', 'Вера Холодная', 'Граф Орлов', 'Доктор Ватсон', 'Ирэн Адлер', 'Филип Марлоу', 'Лиза Корф', 'Комиссар Мегрэ'];
 
   const BOT_LINES = {
     open: ['Давайте сверим алиби, пока все помнят детали.', 'Начнём с улик. Кто подходит под первую?', 'Пока слишком мало данных, но кое-что уже странно.', 'Я проверю ваши карточки по порядку.'],
@@ -270,7 +274,7 @@
     if (!caseData || !Array.isArray(caseData.habits)) return;
     caseData.habits.forEach((h) => {
       if (!h || !h.key || Object.prototype.hasOwnProperty.call(TAGS, h.key) && !TAGS[h.key].own) return;
-      TAGS[h.key] = { label: h.label, habit: h.habit || h.label, clues: h.clues && h.clues.length ? h.clues : [`У преступника примета: ${String(h.label).toLowerCase()}.`], own: caseData.id };
+      TAGS[h.key] = { label: h.label, habit: h.habit || h.label, clues: h.clues && h.clues.length ? h.clues : [O.tell ? O.tell(h.label) : `У преступника примета: ${String(h.label).toLowerCase()}.`], own: caseData.id };
     });
   }
   /** Из каких примет раздаются особенности в этом деле. */
@@ -290,7 +294,9 @@
     return own.length >= need ? own : own.concat(fallback.filter((x) => !own.includes(x)));
   }
 
+  /* Число и слово к нему. Если формы английские (без кириллицы), действует английское правило: 1 case, 2 cases. */
   function trans(n, one, few, many) {
+    if (!/[А-Яа-яЁё]/.test(String(one))) return Math.abs(n) === 1 ? one : many;
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
     if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
@@ -300,6 +306,32 @@
   return {
     TAGS, TAG_KEYS, HABIT_TAGS, TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS,
     RELATIONS, MOTIVES, SECRET_LOC, SECRET_PLAIN, GENERIC_PROFESSIONS, CARDS, SWAPS_IN_DECK, AWARDS, DURATIONS, PROMPTS, BOT_NAMES, BOT_LINES, NPC_NAMES, CARDS_NPC, trans,
-    registerCase, habitPool, clueTexts, caseList,
+    registerCase, habitPool, clueTexts, caseList, lang,
   };
+  }
+
+  const ru = make('ru', {});
+  const langs = { ru };
+  /** Справочник на нужном языке. Неизвестный язык даёт русский. */
+  ru.forLang = (lang) => {
+    if (!lang || lang === 'ru' || !EN || lang !== 'en') return ru;
+    if (!langs.en) {
+      langs.en = make('en', EN);
+      langs.en.forLang = ru.forLang;
+      // Подписи пунктов, карт и наград приходят клиенту по-русски от движка: их переводит словарь сообщений.
+      if (I18N) {
+        const msg = {};
+        const pair = (a, b) => { if (a && b && a !== b) msg[a] = b; };
+        Object.keys(ru.TRAITS).forEach((k) => pair(ru.TRAITS[k], langs.en.TRAITS[k]));
+        Object.keys(ru.CARDS).forEach((k) => { pair(ru.CARDS[k].name, langs.en.CARDS[k].name); pair(ru.CARDS[k].desc, langs.en.CARDS[k].desc); });
+        Object.keys(ru.CARDS_NPC).forEach((k) => pair(ru.CARDS_NPC[k], langs.en.CARDS_NPC[k]));
+        Object.keys(ru.AWARDS).forEach((k) => pair(ru.AWARDS[k].title, langs.en.AWARDS[k].title));
+        Object.keys(ru.PROMPTS).forEach((k) => pair(ru.PROMPTS[k], langs.en.PROMPTS[k]));
+        I18N.add('en', { msg });
+      }
+    }
+    return langs.en;
+  };
+  if (I18N && EN) ru.forLang('en');
+  return ru;
 });

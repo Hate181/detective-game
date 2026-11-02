@@ -24,7 +24,7 @@
     socket.on('connect', () => emit('status', 'on'));
     socket.on('disconnect', () => emit('status', 'off'));
     socket.on('connect_error', () => emit('status', 'off'));
-    socket.on('room:state', (s) => { Net.offset = s.serverNow - Date.now(); emit('state', s); });
+    socket.on('room:state', (s) => { Net.offset = s.serverNow - Date.now(); emit('state', I18N.deep(s)); });
     socket.on('room:kicked', (d) => emit('kicked', d || {}));
     // Вернулись во вкладку, а связь за это время пропала: подключаемся сразу, не дожидаясь паузы между попытками.
     const wake = () => { if (document.visibilityState === 'visible' && !socket.connected) { socket.disconnect(); socket.connect(); } };
@@ -35,7 +35,7 @@
       mode: 'server',
       call(event, payload) {
         return new Promise((resolve) => {
-          socket.timeout(8000).emit(event, payload || {}, (err, res) => resolve(err ? { ok: false, error: 'Сервер не отвечает. Проверьте соединение.' } : res));
+          socket.timeout(8000).emit(event, payload || {}, (err, res) => resolve(err ? { ok: false, error: L('Сервер не отвечает. Проверьте соединение.') } : res));
         });
       },
       async cases() {
@@ -67,7 +67,7 @@
         if (room && room.code === code) push();
       },
     });
-    const push = () => { const v = hub.view(token); if (v) emit('state', v); };
+    const push = () => { const v = hub.view(token); if (v) emit('state', I18N.deep(v)); };
     const demoHosts = new Set();
     const timers = new Set();
     const later = (ms, fn) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
@@ -75,7 +75,7 @@
 
     const addBot = (room) => {
       const used = new Set(room.players.map((p) => p.name));
-      const nm = Content.BOT_NAMES.find((x) => !used.has(x)) || `Агент ${room.players.length + 1}`;
+      const nm = Content.BOT_NAMES.find((x) => !used.has(x)) || L('Агент {0}', room.players.length + 1);
       return hub._addPlayer(room, 'bot-' + hub._id(12), nm, true);
     };
     const arrivals = (room, n, firstDelay = 900) => {
@@ -113,7 +113,7 @@
         const code = window.DetectiveHub.normalizeCode(p.code);
         if (!hub.rooms.has(code)) {
           // Комнаты по коду в демо нет, поэтому «ведущий» появляется сам.
-          const room = { code, createdAt: Date.now(), lastActive: Date.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main', settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', table: 'full', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false };
+          const room = { code, createdAt: Date.now(), lastActive: Date.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main', lang: I18N.lang, settings: { discuss: 90, turn: 40, speed: 1, mode: 'host', hints: 'normal', table: 'full', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false };
           hub.rooms.set(code, room);
           const host = addBot(room); room.hostId = host.id;
           for (let i = 0; i < 4; i++) addBot(room);
@@ -171,7 +171,11 @@
   const impl = window.io ? socketNet() : demoNet();
   Net.mode = impl.mode;
   if (impl.mode === 'demo') Net.me.community = 'https://discord.gg/hfWsKkGVH';
-  Net.call = impl.call;
+  /* Новая комната открывается на языке сайта. Ошибки сервера приходят по-русски, переводим их здесь. */
+  Net.call = (event, payload) => impl.call(event, event === 'room:create' ? Object.assign({ lang: I18N.lang }, payload) : payload).then((r) => {
+    if (r && typeof r.error === 'string') r.error = I18N.tr(r.error);
+    return r;
+  });
   Net.cases = impl.cases;
   Net.loadMe();
   window.Net = Net;

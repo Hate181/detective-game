@@ -9,7 +9,7 @@ const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>'))
   .replace(/<script src="([^"]+)"><\/script>/g, (_, src) => `<script>\n${read(src).replace(/<\/script/gi, '<\\/script')}\n</script>`);
 const head = html.slice(html.indexOf('<title>'), html.indexOf('</head>'))
   .replace(/<meta name="viewport"[^>]*>\n?/, '')
-  .replace('<link rel="stylesheet" href="css/app.css">', `<style>\n${read('css/app.css')}\n</style>`);
+  .replace('<link rel="stylesheet" href="/css/app.css">', `<style>\n${read('css/app.css')}\n</style>`);
 const out = path.join(__dirname, '..', 'dist');
 fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, 'detective-preview.html'), `${head}\n${body}`);

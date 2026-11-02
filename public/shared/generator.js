@@ -12,7 +12,9 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'));
   else root.DetectiveGenerator = factory(root.DetectiveContent);
-})(typeof self !== 'undefined' ? self : this, function (Content) {
+})(typeof self !== 'undefined' ? self : this, function (ContentRoot) {
+  // Справочник на языке дела: английское дело (caseData.lang = 'en') берёт английские приметы и списки.
+  const langOf = (caseData) => ContentRoot.forLang(caseData && caseData.lang);
   const CLUE_COUNT = 4;
   const HABITS = 2; // особенностей у каждого игрока в партии с двумя преступниками
   // Сколько игроков может подходить под одну улику: за большим столом больше, иначе двоим двойникам не хватит места.
@@ -25,6 +27,7 @@
   const fmt = (min) => { const m = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
   function professionPool(caseData) {
+    const Content = langOf(caseData);
     const own = (caseData.professions || []).map((p) => ({ name: p.name, tags: (p.tags || []).filter((t) => Object.prototype.hasOwnProperty.call(Content.TAGS, t)) }));
     const names = new Set(own.map((p) => p.name));
     const extra = Content.GENERIC_PROFESSIONS.filter((p) => !names.has(p.name));
@@ -230,6 +233,7 @@
   }
 
   function generate({ caseData, ids, killerId, accompliceId = null, gang = false, rng }) {
+    const Content = langOf(caseData);
     const crimId = gang && accompliceId ? accompliceId : null; // сообщник получает те же улики, только если победа требует исключить обоих
     const n = ids.length;
     // Профессия без навыка, подходящего под улики, никогда не досталась бы преступнику и сразу оправдывала бы владельца.
