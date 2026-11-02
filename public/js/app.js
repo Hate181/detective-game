@@ -13,7 +13,8 @@
   const PATH_PAGE = /^\/(rules|contacts|privacy|cookies)\/?$/;
   function parseRoute() {
     const bare = !location.hash || location.hash === '#';
-    const h = bare && PATH_PAGE.test(location.pathname) ? location.pathname.replace(/\/$/, '') : (location.hash || '#/').replace(/^#/, '');
+    const path = I18N.strip(location.pathname);
+    const h = bare && PATH_PAGE.test(path) ? path.replace(/\/$/, '') : (location.hash || '#/').replace(/^#/, '');
     const m = h.match(/^\/room\/([A-Za-z0-9]+)/);
     if (h.startsWith('/admin')) return { name: 'admin' };
     if (m) return { name: 'room', code: m[1].toUpperCase() };
@@ -57,38 +58,38 @@
     el.hidden = false;
     if (!a) {
       const g = App.guestName();
-      el.innerHTML = `<a class="acct-open acct-guest" href="#/profile" title="Личный кабинет"><span class="acct-av" style="background:${UI.esc(App.hue(g))}">Г</span><span class="acct-name">${UI.esc(g)}</span><span class="acct-prov">войти</span></a>`;
+      el.innerHTML = `<a class="acct-open acct-guest" href="#/profile" title="${L('Личный кабинет')}"><span class="acct-av" style="background:${UI.esc(App.hue(g))}">${L('Г')}</span><span class="acct-name">${UI.esc(g)}</span><span class="acct-prov">${L('войти')}</span></a>`;
       return;
     }
     const av = a.avatar ? `<img class="acct-av" src="${UI.esc(a.avatar)}" alt="" referrerpolicy="no-referrer">` : `<span class="acct-av" style="background:${UI.esc(App.hue(a.name))}">${UI.esc(UI.initial(a.name))}</span>`;
-    el.innerHTML = `<a class="acct-open" href="#/profile" title="Личный кабинет">${av}<span class="acct-name">${UI.esc(a.name)}</span><span class="acct-prov">${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : a.provider === 'email' ? 'почта' : 'тест'}</span></a>`;
+    el.innerHTML = `<a class="acct-open" href="#/profile" title="${L('Личный кабинет')}">${av}<span class="acct-name">${UI.esc(a.name)}</span><span class="acct-prov">${a.provider === 'discord' ? 'Discord' : a.provider === 'google' ? 'Google' : a.provider === 'email' ? L('почта') : L('тест')}</span></a>`;
   }
   App.renderAccount = renderAccount;
   App.hue = (name) => `hsl(${[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 45% 38%)`;
   /** Имя, под которым гость сядет за стол. Сервер считает его так же, по токену браузера. */
-  App.guestName = () => window.DetectiveHub.guestName(Net.token);
+  App.guestName = () => window.DetectiveHub.guestName(Net.token, 0, I18N.lang);
 
   const postJson = async (url, body) => {
     try { return await (await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json(); }
-    catch (e) { return { ok: false, error: 'Нет связи с сервером.' }; }
+    catch (e) { return { ok: false, error: L('Нет связи с сервером.') }; }
   };
   App.postJson = postJson;
 
   /** Вход и регистрация по почте с паролем. После успеха страница перезагружается и садится под аккаунтом. */
   App.emailLogin = (mode = 'login') => {
-    if (Net.mode === 'demo') { UI.toast('В демо входа нет, играйте гостем.'); return; }
+    if (Net.mode === 'demo') { UI.toast(L('В демо входа нет, играйте гостем.')); return; }
     UI.modal((box, close) => {
       const draw = () => {
         const reg = mode === 'register';
-        box.innerHTML = `<h3>${reg ? 'Регистрация' : 'Вход по почте'}</h3>
-          <div class="seg em-tabs" role="tablist"><button type="button" role="tab" data-mode="login" class="${reg ? '' : 'on'}" aria-selected="${!reg}">Вход</button><button type="button" role="tab" data-mode="register" class="${reg ? 'on' : ''}" aria-selected="${reg}">Регистрация</button></div>
+        box.innerHTML = `<h3>${reg ? L('Регистрация') : L('Вход по почте')}</h3>
+          <div class="seg em-tabs" role="tablist"><button type="button" role="tab" data-mode="login" class="${reg ? '' : 'on'}" aria-selected="${!reg}">${L('Вход')}</button><button type="button" role="tab" data-mode="register" class="${reg ? 'on' : ''}" aria-selected="${reg}">${L('Регистрация')}</button></div>
           <form class="em-form" novalidate>
-            <div class="field"><label for="emMail">Почта</label><input class="input" id="emMail" type="email" autocomplete="email" maxlength="200" required></div>
-            <div class="field"><label for="emPass">Пароль</label><input class="input" id="emPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" maxlength="128" required>${reg ? '<small class="hint">Не меньше 8 знаков</small>' : ''}</div>
-            ${reg ? '<div class="field"><label for="emName">Имя в игре</label><input class="input" id="emName" maxlength="18" autocomplete="nickname" required></div>' : ''}
+            <div class="field"><label for="emMail">${L('Почта')}</label><input class="input" id="emMail" type="email" autocomplete="email" maxlength="200" required></div>
+            <div class="field"><label for="emPass">${L('Пароль')}</label><input class="input" id="emPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" maxlength="128" required>${reg ? `<small class="hint">${L('Не меньше 8 знаков')}</small>` : ''}</div>
+            ${reg ? `<div class="field"><label for="emName">${L('Имя в игре')}</label><input class="input" id="emName" maxlength="18" autocomplete="nickname" required></div>` : ''}
             <p class="em-err" role="alert"></p>
-            <div class="row"><button class="btn btn-ghost" type="button" data-cancel>Отмена</button><button class="btn btn-primary" type="submit">${reg ? 'Создать аккаунт' : 'Войти'}</button></div>
-            ${reg ? '' : '<p class="hint">Забыли пароль? Напишите нам на почту из подвала сайта, пришлём временный.</p>'}
+            <div class="row"><button class="btn btn-ghost" type="button" data-cancel>${L('Отмена')}</button><button class="btn btn-primary" type="submit">${reg ? L('Создать аккаунт') : L('Войти')}</button></div>
+            ${reg ? '' : `<p class="hint">${L('Забыли пароль? Напишите нам на почту из подвала сайта, пришлём временный.')}</p>`}
           </form>`;
         box.querySelector('#emMail').focus();
       };
@@ -105,7 +106,7 @@
         const r = await postJson(mode === 'register' ? '/auth/email/register' : '/auth/email/login', { email: val('#emMail'), password: val('#emPass'), name: val('#emName') });
         btn.disabled = false;
         if (!r.ok) {
-          box.querySelector('.em-err').textContent = r.error || 'Не получилось.';
+          box.querySelector('.em-err').textContent = r.error || L('Не получилось.');
           const el = box.querySelector({ email: '#emMail', password: '#emPass', name: '#emName' }[r.field] || '#emPass');
           if (el) { el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); el.focus(); }
           return;
@@ -125,12 +126,12 @@
     const demo = Net.mode === 'demo';
     const discord = !demo && pr.discord ? `<a class="btn" href="/auth/discord">${DISCORD_SVG} Discord</a>` : `<button class="btn" type="button" aria-disabled="true" data-off-auth>${DISCORD_SVG} Discord</button>`;
     const google = !demo && pr.google ? `<a class="btn" href="/auth/google">${GOOGLE_SVG} Google</a>` : '';
-    return `<div class="auth-btns">${discord}<button class="btn" type="button" data-email="login">${MAIL_SVG} Почта</button>${google}${pr.dev ? '<a class="btn" href="/auth/dev?name=Тест">Тестовый вход</a>' : ''}</div>`;
+    return `<div class="auth-btns">${discord}<button class="btn" type="button" data-email="login">${L('{0} Почта', MAIL_SVG)}</button>${google}${pr.dev ? `<a class="btn" href="${L('/auth/dev?name=Тест')}">${L('Тестовый вход')}</a>` : ''}</div>`;
   };
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-email]');
     if (b) { e.preventDefault(); App.emailLogin(b.dataset.email || 'login'); return; }
-    if (e.target.closest('[data-off-auth]')) UI.toast(Net.mode === 'demo' ? 'В демо входа нет, играйте гостем.' : 'Вход через Discord скоро заработает. Пока можно войти по почте.');
+    if (e.target.closest('[data-off-auth]')) UI.toast(Net.mode === 'demo' ? L('В демо входа нет, играйте гостем.') : L('Вход через Discord скоро заработает. Пока можно войти по почте.'));
   });
 
   /** Сохранить имя в профиле аккаунта ({name} или {reset:true}). Если игрок в лобби, имя меняется и там. */
@@ -162,22 +163,22 @@
 
   Net.on('state', (s) => { App.state = s; render(); });
   Net.on('left', () => { App.state = null; location.hash = '#/'; render(); });
-  Net.on('kicked', (d) => { App.state = null; toast(d && d.closed ? 'Комнату закрыли.' : 'Вас убрали из комнаты.', 'err'); location.hash = '#/'; render(); });
+  Net.on('kicked', (d) => { App.state = null; toast(d && d.closed ? L('Комнату закрыли.') : L('Вас убрали из комнаты.'), 'err'); location.hash = '#/'; render(); });
   const setStatus = (s) => {
     conn.dataset.state = s;
-    conn.querySelector('span').textContent = s === 'on' ? 'На связи' : s === 'demo' ? 'Демо' : 'Нет связи';
+    conn.querySelector('span').textContent = s === 'on' ? L('На связи') : s === 'demo' ? L('Демо') : L('Нет связи');
     demoBadge.hidden = s !== 'demo';
   };
   Net.on('status', (s) => {
     setStatus(s);
-    if (s === 'off' && App.state) toast('Связь потеряна. Пробуем вернуться…', 'err');
-    if (s === 'on' && App.state) toast('Связь восстановлена.');
+    if (s === 'off' && App.state) toast(L('Связь потеряна. Пробуем вернуться…'), 'err');
+    if (s === 'on' && App.state) toast(L('Связь восстановлена.'));
   });
   if (Net.mode === 'demo') setStatus('demo');
   function renderFooter() {
     const el = document.getElementById('footMail');
     const mail = Net.me && Net.me.contact;
-    el.innerHTML = mail ? `Почта для связи: <a href="mailto:${UI.esc(mail)}">${UI.esc(mail)}</a>` : 'Почта для связи: <a href="/contacts">контакты</a>';
+    el.innerHTML = mail ? `${L('Почта для связи:')} <a href="mailto:${UI.esc(mail)}">${UI.esc(mail)}</a>` : `${L('Почта для связи:')} <a href="${I18N.pathFor(I18N.lang, '/contacts')}">${L('контакты')}</a>`;
   }
 
   /* Плашка про cookie: показывается на главной и страницах документов, пока игрок не нажал «Хорошо». В лобби и игре её не видно. */
@@ -198,12 +199,41 @@
   document.addEventListener('click', (e) => {
     const a = e.target.closest && e.target.closest('a[href]');
     if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target) return;
-    const href = a.getAttribute('href');
+    if (a.hasAttribute('data-lang')) return;
+    const href = I18N.strip(a.getAttribute('href'));
     if (href !== '/' && !PATH_PAGE.test(href)) return;
-    if (location.pathname !== '/') return;
+    if (I18N.strip(location.pathname) !== '/') return;
     e.preventDefault();
     location.hash = '#' + href;
   });
+
+  /* Переключатель языка. Выбор запоминается (cookie для сервера и запись в браузере), страница открывается
+     по адресу на другом языке, решётка (#/room/КОД) сохраняется, так что игрок возвращается в ту же комнату. */
+  {
+    const sw = document.getElementById('langSw');
+    const sync = () => sw.querySelectorAll('[data-lang]').forEach((a) => {
+      const on = a.dataset.lang === I18N.lang;
+      a.classList.toggle('on', on);
+      if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      if (Net.mode !== 'demo') a.setAttribute('href', I18N.pathFor(a.dataset.lang, location.pathname));
+    });
+    sync();
+    sw.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-lang]');
+      if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      const to = a.dataset.lang;
+      if (to === I18N.lang) return;
+      try { localStorage.setItem('detective.lang', to); } catch (err) { /* не запомним в браузере, останется cookie */ }
+      document.cookie = `lang=${to}; path=/; max-age=31536000; samesite=lax${location.protocol === 'https:' ? '; secure' : ''}`;
+      if (Net.mode === 'demo') { location.reload(); return; }
+      location.href = I18N.pathFor(to, location.pathname) + location.search + location.hash;
+    });
+  }
+  // Шапка, подвал и плашка cookie лежат в самой странице: на английском сайте сервер уже отдал их по-английски,
+  // а в демо без сервера переводим здесь.
+  ['topbar', 'sitefoot', 'cookieBar'].forEach((id) => I18N.applyDom(document.getElementById(id)));
+  document.title = L(document.title);
   renderAccount();
   renderFooter();
 
@@ -211,7 +241,7 @@
   try {
     const m = location.search.match(/[?&]auth=(\w+)/);
     if (m) {
-      const msg = { ok: 'Вы вошли. Теперь место в игре держится за аккаунтом.', fail: 'Войти не получилось. Попробуйте ещё раз.', cancel: 'Вход отменён.', off: 'Этот способ входа пока не подключён.' }[m[1]];
+      const msg = { ok: L('Вы вошли. Теперь место в игре держится за аккаунтом.'), fail: L('Войти не получилось. Попробуйте ещё раз.'), cancel: L('Вход отменён.'), off: L('Этот способ входа пока не подключён.') }[m[1]];
       if (msg) toast(msg, m[1] === 'ok' ? undefined : 'err');
       history.replaceState(null, '', location.pathname + (location.hash || '#/'));
     }

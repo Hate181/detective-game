@@ -1,4 +1,4 @@
-/* Картинка для превью ссылок (public/og.jpg, 1200×630) и иконки сайта: favicon.svg, favicon.ico, apple-touch-icon.png.
+/* Картинки для превью ссылок (public/og.jpg и английская public/og-en.jpg, 1200×630) и иконки сайта: favicon.svg, favicon.ico, apple-touch-icon.png.
    Запуск: node scripts/build-og.js (нужен Playwright с Chromium; путь можно задать в CHROME). */
 const fs = require('fs');
 const path = require('path');
@@ -7,7 +7,11 @@ const { chromium } = require('playwright');
 const OUT = path.join(__dirname, '..', 'public');
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#120c09"/><circle cx="14" cy="14" r="7" fill="none" stroke="#eba43c" stroke-width="2.4"/><path d="M19 19l7 7" stroke="#eba43c" stroke-width="3" stroke-linecap="round"/></svg>`;
 
-const OG = `<!doctype html><html><head><meta charset="utf-8">
+const OG_TEXT = {
+  ru: ['Онлайн-детектив · 2–10 человек · 30 минут', 'Убийца среди вас. Осталось понять кто.'],
+  en: ['Online detective · 2–10 players · 30 minutes', 'The killer is one of you. Now work out who.'],
+};
+const og = (lang) => `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500&family=IBM+Plex+Mono:wght@500&family=Playfair+Display:wght@700&display=swap">
 <style>
 html,body{margin:0;width:1200px;height:630px;overflow:hidden}
@@ -23,9 +27,9 @@ h1 span{display:block;font-size:84px;letter-spacing:.02em;color:#eba43c;font-sty
 .url{position:absolute;right:84px;bottom:52px;font-family:'IBM Plex Mono',monospace;font-size:26px;color:#b89c76}
 </style></head><body><div class="blinds"></div>
 <svg class="glass" viewBox="0 0 32 32"><circle cx="13" cy="13" r="8.5" fill="none" stroke="#eba43c" stroke-width="2"/><path d="M19.5 19.5 28 28" stroke="#eba43c" stroke-width="2.8" stroke-linecap="round"/></svg>
-<div class="wrap"><p class="eyebrow">Онлайн-детектив · 2–10 человек · 30 минут</p>
+<div class="wrap"><p class="eyebrow">${OG_TEXT[lang][0]}</p>
 <h1>DETECTIVE<span>Game</span></h1>
-<p class="lead">Убийца среди вас. Осталось понять кто.</p></div>
+<p class="lead">${OG_TEXT[lang][1]}</p></div>
 <div class="url">detective-game.org</div><div class="tape"></div></body></html>`;
 
 // ICO с PNG внутри: так его понимают все браузеры и Яндекс.
@@ -46,9 +50,11 @@ function ico(pngs) {
 (async () => {
   const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
-  await page.setContent(OG, { waitUntil: 'networkidle' });
-  await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: path.join(OUT, "og.jpg"), type: "jpeg", quality: 88 });
+  for (const lang of ['ru', 'en']) {
+    await page.setContent(og(lang), { waitUntil: 'networkidle' });
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: path.join(OUT, lang === 'ru' ? 'og.jpg' : 'og-en.jpg'), type: 'jpeg', quality: 88 });
+  }
   fs.writeFileSync(path.join(OUT, 'favicon.svg'), ICON);
   const shot = async (size, rounded) => {
     await page.setViewportSize({ width: size, height: size });
@@ -61,5 +67,5 @@ function ico(pngs) {
   fs.writeFileSync(path.join(OUT, 'favicon.ico'), ico(pngs));
   fs.writeFileSync(path.join(OUT, 'apple-touch-icon.png'), await shot(180, false));
   await browser.close();
-  console.log('og.jpg, favicon.svg, favicon.ico, apple-touch-icon.png готовы');
+  console.log('og.jpg, og-en.jpg, favicon.svg, favicon.ico, apple-touch-icon.png готовы');
 })();

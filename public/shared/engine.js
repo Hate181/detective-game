@@ -13,6 +13,8 @@
   }
 })(typeof self !== 'undefined' ? self : this, function (Content, Generator, RngMod) {
   const { Rng } = RngMod;
+  // Данные дела (приметы, профессии, имена) берутся на языке дела. Подписи в событиях остаются русскими: их переводит клиент.
+  const CC = (game) => Content.forLang(game && game.caseData && game.caseData.lang);
   const { TRAITS, TRAIT_KEYS, SAFE_TRAITS, ASKABLE_TRAITS, SEARCHABLE_TRAITS, CONFRONT_TRAITS, CARDS, DURATIONS } = Content;
 
   const ROUNDS = 4;
@@ -95,7 +97,7 @@
     if (team.length > 5) bad('В малом составе играют до пяти человек.');
     // У тематических дел свой список имён в духе их мира, у остальных общий пул эпохи.
     const own = Array.isArray(caseData.npcNames) ? Array.from(new Set(caseData.npcNames.filter((n) => typeof n === 'string' && n.trim()))) : [];
-    const pool = rng.shuffle(own.length >= NPC_COUNT ? own : Content.NPC_NAMES[Number(caseData.year) >= 1990 ? 'modern' : 'classic'].slice());
+    const pool = rng.shuffle(own.length >= NPC_COUNT ? own : Content.forLang(caseData.lang).NPC_NAMES[Number(caseData.year) >= 1990 ? 'modern' : 'classic'].slice());
     const npcs = Array.from({ length: NPC_COUNT }, (_, i) => ({ id: `npc${i + 1}`, name: pool[i] }));
     const ids = npcs.map((c) => c.id);
     const killerId = rng.pick(ids);
@@ -512,7 +514,9 @@
     // Голосование анонимное: в ленту идут только итоги, кто за кого, не показываем ни в игре, ни после.
     const lines = v.candidates.filter((id) => v.count[id] > 0).sort((a, b) => v.count[b] - v.count[a]).map((id) => `${nm(game, id)}: ${v.count[id]}`);
     const skipped = auto.length ? ` Не выбрали: ${auto.length}.` : '';
-    pushFeed(game, now, { kind: 'vote', text: `${v.kind === 'poll' ? 'Итоги опроса' : 'Итоги голосования'}: ${lines.join(', ') || 'никто не проголосовал'}.${skipped}` });
+    const list = lines.join(', ');
+    const head = v.kind === 'poll' ? (list ? `Итоги опроса: ${list}.` : 'Итоги опроса: никто не проголосовал.') : (list ? `Итоги голосования: ${list}.` : 'Итоги голосования: никто не проголосовал.');
+    pushFeed(game, now, { kind: 'vote', text: head + skipped });
   }
 
   function tallyVote(game, now) {
@@ -670,12 +674,12 @@
   function cleanValue(game, t, trait) {
     const clueTags = new Set(game.clues.map((c) => c.tag));
     if (trait === 'profession') {
-      const own = (game.caseData.professions || []).concat(Content.GENERIC_PROFESSIONS);
+      const own = (game.caseData.professions || []).concat(CC(game).GENERIC_PROFESSIONS);
       const ok = own.filter((x) => x.name !== t.card.profession && !(x.tags || []).some((g) => clueTags.has(g)));
       return ok.length ? game.rng.pick(ok).name : t.card.profession;
     }
-    const pool = Content.habitPool(game.caseData).filter((g) => !clueTags.has(g));
-    return game.rng.sample(pool, Math.max(2, t.card.habitTags.length)).map((g) => Content.TAGS[g].habit).join(', ');
+    const pool = CC(game).habitPool(game.caseData).filter((g) => !clueTags.has(g));
+    return game.rng.sample(pool, Math.max(2, t.card.habitTags.length)).map((g) => CC(game).TAGS[g].habit).join(', ');
   }
 
   function afterResult(game, now) {
@@ -792,7 +796,7 @@
       scene: game.scene, murderTime: game.caseData.time, window: P(game, game.killerId).card.alibi.window,
       score: total, items, rank, awards, chronology, minutes: Math.max(1, Math.round((game.endedAt - game.startedAt) / 60000)),
       plants: game.plants, accompliceChoice: accChoice || null, 
-      clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
+      clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, label: CC(game).TAGS[c.tag] ? CC(game).TAGS[c.tag].label : c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
       kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role })),
       votes: game.votesLog.map((x) => ({ round: x.round, kind: x.kind, runoff: x.runoff, count: x.count, skipped: x.auto.length })), rounds: game.round,
     };
@@ -835,7 +839,7 @@
       scene: game.scene, murderTime: game.caseData.time, window: P(game, game.killerId).card.alibi.window,
       score: total, items, rank, awards, chronology: chronologyOf(game), minutes: Math.max(1, Math.round((game.endedAt - game.startedAt) / 60000)),
       plants: game.plants, accompliceChoice: null,
-      clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
+      clues: game.clues.map((c) => ({ id: c.id, text: c.text, tag: c.tag, label: CC(game).TAGS[c.tag] ? CC(game).TAGS[c.tag].label : c.tag, planted: c.planted, round: c.revealedRound, fits: c.fits, orig: c.orig ? { text: c.orig.text, tag: c.orig.tag } : null })),
       kicks: game.kicks.map((k) => ({ id: k.id, kind: k.kind, via: k.via, round: k.round, role: k.role })),
       votes: game.votesLog.map((x) => ({ round: x.round, kind: x.kind, runoff: x.runoff, count: x.count, skipped: x.auto.length })), rounds: game.round,
     };
@@ -1048,7 +1052,7 @@
       if (p.notes.some((n) => n.kind === 'lab' && n.clueId === clue.id)) bad('Эту улику вы уже проверили.');
       const no = game.clues.indexOf(clue) + 1;
       const fake = !!clue.planted;
-      p.notes.push({ t: now, round: game.round, kind: 'lab', targetId: null, trait: null, clueId: clue.id, fake, text: `Улика ${no} (${Content.TAGS[clue.tag].label.toLowerCase()}) ${fake ? 'ложная: её подменили' : 'правдивая'}.` });
+      p.notes.push({ t: now, round: game.round, kind: 'lab', targetId: null, trait: null, clueId: clue.id, fake, text: `Улика ${no} (${CC(game).TAGS[clue.tag].label.toLowerCase()}) ${fake ? 'ложная: её подменили' : 'правдивая'}.` });
     } else bad('Неизвестная карта.');
     p.cards[i].used = true;
   };
@@ -1057,7 +1061,7 @@
     if (!clue.orig) clue.orig = { tag: clue.tag, text: clue.text, fits: clue.fits };
     game.plants.forEach((x) => { if (x.clueId === clue.id) x.overridden = true; });
     clue.tag = tag;
-    clue.text = game.rng.pick(Content.clueTexts(game.caseData, tag));
+    clue.text = game.rng.pick(CC(game).clueTexts(game.caseData, tag));
     clue.fits = game.order.filter((id) => P(game, id).card.tags.includes(tag));
     clue.planted = true;
     game.plants.push({ by: byId, targetId: t.id, round: game.round, clueId: clue.id, origTag: clue.orig.tag, origText: clue.orig.text });
@@ -1239,12 +1243,12 @@
 
   /* ---------- Представление для клиента ---------- */
 
-  function chips(tags) { return (tags || []).map((t) => ({ key: t, label: Content.TAGS[t].label })); }
+  function chips(game, tags) { return (tags || []).map((t) => ({ key: t, label: CC(game).TAGS[t].label })); }
 
   function viewCard(game, p) {
     const c = p.card;
     return {
-      profession: c.profession, proTags: chips(c.proTags), habit: c.habitText, habitTags: chips(c.habitTags),
+      profession: c.profession, proTags: chips(game, c.proTags), habit: c.habitText, habitTags: chips(game, c.habitTags),
       relation: c.relation, motive: c.motive,
       alibi: { claim: c.alibi.claim, real: c.alibi.real, lied: lies(p), window: c.alibi.window },
       secret: secretText(game, p), secretKind: c.secret.kind, goal: goalText(game, p),
@@ -1279,7 +1283,7 @@
       return {
         id, name: p.name, bot: p.bot, npc: !!p.npc, status: p.status, revealed: rev,
         // В обычном режиме сервер не отдаёт, какие открытые приметы совпадают с уликами: это игроки замечают сами.
-        tags: chips(ended ? p.card.tags : game.settings.hints === 'light' ? shownTags(p) : []),
+        tags: chips(game, ended ? p.card.tags : game.settings.hints === 'light' ? shownTags(p) : []),
         role: knowsRole ? p.role : null,
         ready: p.ready, left: p.left, auto: p.auto && !p.bot, host: id === game.hostId,
         speaking: (!!turn && turn.speakerId === id) || (!!acc && acc.speakerId === id),
@@ -1301,7 +1305,7 @@
       accuse: acc ? { speakerId: acc.speakerId, idx: acc.idx, total: acc.queue.length, queue: acc.queue, done: acc.done } : null,
       turn: game.turn && game.phase === PH.TURNS ? { speakerId: game.turn.speakerId, idx: game.turn.idx, total: game.turn.queue.length, queue: game.turn.queue, revealed: game.turn.revealed } : null,
       vote: voting ? { kind: game.vote.kind, candidates: game.vote.candidates, runoff: game.vote.runoff, voted: Object.keys(game.vote.votes).filter((id) => game.players[id].status === 'active'), my: me ? game.vote.votes[me.id] || null : null } : null,
-      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: Content.TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id && !x.overridden)), checked: labVerdict(me, c) })),
+      clues: game.clues.filter((c) => c.revealedRound !== null).map((c) => ({ id: c.id, round: c.revealedRound, text: c.text, tag: c.tag, label: CC(game).TAGS[c.tag].label, planted: ended ? !!c.planted : false, mine: !!(c.planted && me && game.plants.some((x) => x.clueId === c.id && x.by === me.id && !x.overridden)), checked: labVerdict(me, c) })),
       feed: game.feed.slice(-160).map((f) => ({ id: f.id, t: f.t, kind: f.kind, text: f.text, who: f.who, clueId: f.clueId, trait: f.trait })),
       poll: game.poll ? { finalists: game.poll.finalists } : null,
       defense: game.defense ? { order: game.defense.order, idx: game.defense.idx, speaker: game.defense.order[game.defense.idx] || null } : null,
@@ -1353,14 +1357,14 @@
       if (me.role === 'mole') {
         v.me.moleInfo = {
           killerId: game.killerId, accompliceId: game.accompliceId,
-          clues: game.clues.map((c) => { const o = c.orig || c; return { id: c.id, label: Content.TAGS[o.tag].label, fits: o.fits.filter((id) => [game.killerId, game.accompliceId].includes(id)), revealed: c.revealedRound !== null, replaced: !!c.orig && c.revealedRound !== null }; }),
+          clues: game.clues.map((c) => { const o = c.orig || c; return { id: c.id, label: CC(game).TAGS[o.tag].label, fits: o.fits.filter((id) => [game.killerId, game.accompliceId].includes(id)), revealed: c.revealedRound !== null, replaced: !!c.orig && c.revealedRound !== null }; }),
         };
       }
       if (me.role === 'killer' || (game.gang && me.role === 'accomplice')) {
         v.me.killerInfo = {
           accompliceId: me.role === 'killer' ? game.accompliceId : null,
           // Убийца с самого начала знает, какие улики указывают на него. Если одну подменили, он заметит это, когда её найдут.
-          clues: game.clues.map((c) => { const o = c.orig || c; return { id: c.id, text: o.text, label: Content.TAGS[o.tag].label, mine: o.fits.includes(me.id), revealed: c.revealedRound !== null, replaced: !!c.orig && c.revealedRound !== null }; }),
+          clues: game.clues.map((c) => { const o = c.orig || c; return { id: c.id, text: o.text, label: CC(game).TAGS[o.tag].label, mine: o.fits.includes(me.id), revealed: c.revealedRound !== null, replaced: !!c.orig && c.revealedRound !== null }; }),
           locations: game.caseData.locations.filter((l) => l !== game.scene).map((l) => ({ loc: l, crowded: game.order.some((id) => id !== me.id && P(game, id).card.alibi.real.loc === l) })),
         };
       }
@@ -1373,7 +1377,7 @@
         killerId: game.killerId, accompliceId: game.accompliceId, seed: game.seed,
         votes: game.vote ? Object.assign({}, game.vote.votes) : {},
         players: game.order.map((id) => { const p = game.players[id]; return { id, name: p.name, role: p.role, auto: p.auto, bot: p.bot, status: p.status, card: viewCard(game, p), cards: p.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, used: c.used })), goalDone: p.goalDone }; }),
-        clues: game.clues.map((c) => ({ id: c.id, tag: c.tag, label: Content.TAGS[c.tag].label, text: c.text, planted: c.planted, orig: c.orig ? Content.TAGS[c.orig.tag].label : null, revealedRound: c.revealedRound, fits: c.fits.map((i) => nm(game, i)) })),
+        clues: game.clues.map((c) => ({ id: c.id, tag: c.tag, label: CC(game).TAGS[c.tag].label, text: c.text, planted: c.planted, orig: c.orig ? CC(game).TAGS[c.orig.tag].label : null, revealedRound: c.revealedRound, fits: c.fits.map((i) => nm(game, i)) })),
         moleId: game.moleId || null,
         team: game.small ? game.team.map((id) => { const p = game.players[id]; return { id, name: p.name, role: p.role, auto: p.auto, cards: p.cards.map((c) => ({ type: c.type, name: CARDS[c.type].name, used: c.used })) }; }) : null,
       };

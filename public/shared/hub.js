@@ -39,16 +39,19 @@
     return m ? `https://${m[1].toLowerCase()}/${m[2]}` : null;
   };
   /** Имя гостя по токену браузера: «Гость-» и пять цифр. Один браузер, один номер, поэтому имя не скачет от игры к игре. */
-  const guestName = (token, salt = 0) => {
+  const guestName = (token, salt = 0, lang = 'ru') => {
     let h = 2166136261 ^ salt;
     for (const ch of String(token)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
-    return `Гость-${10000 + (h % 90000)}`;
+    return `${lang === 'en' ? 'Guest' : 'Гость'}-${10000 + (h % 90000)}`;
   };
-  const isGuestName = (n) => /^Гость-\d{5}$/i.test(String(n || '').trim());
+  const isGuestName = (n) => /^(Гость|Guest)-\d{5}$/i.test(String(n || '').trim());
+  /** Язык комнаты: русский или английский. От него зависят тексты дел и имена гостей. */
+  const roomLang = (room) => (room && room.lang === 'en' ? 'en' : 'ru');
+  const cleanLang = (v) => (v === 'en' ? 'en' : 'ru');
   // Латинские буквы, похожие на русские: «Гоcть» с латинской c не должно сойти за гостя.
   const LOOKALIKE = { a: 'а', c: 'с', e: 'е', o: 'о', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т', h: 'н', b: 'в', r: 'г', '0': 'о', '6': 'б' };
   /** Имя похоже на гостевое: «Гость» в начале зарезервировано за гостями. */
-  const looksGuest = (n) => /^[\s\p{P}\p{S}]*гость/iu.test(String(n || '').toLowerCase().replace(/[a-z0-9]/g, (ch) => LOOKALIKE[ch] || ch));
+  const looksGuest = (n) => /^[\s\p{P}\p{S}]*guest/iu.test(String(n || '')) || /^[\s\p{P}\p{S}]*гость/iu.test(String(n || '').toLowerCase().replace(/[a-z0-9]/g, (ch) => LOOKALIKE[ch] || ch));
   const seasonKey = (d = new Date()) => `${d.getFullYear()}-К${Math.floor(d.getMonth() / 3) + 1}`;
 
   class Hub {
@@ -79,7 +82,7 @@
     /** Пак виден комнате: скрытые по дате паки остаются только в тестовых комнатах админа. */
     _packOpen(room, packId) { return !!(room && room.test) || !Cases.packHidden(packId || 'main', this.now()); }
     /** Дела, которые эта комната может получить или выбрать. */
-    roomCases(room) { return this.enabledCases().filter((c) => this._packOpen(room, c.pack)); }
+    roomCases(room) { const lang = roomLang(room); return this.enabledCases().filter((c) => this._packOpen(room, c.pack) && Cases.hasLang(c, lang)); }
     _roomPack(room) { return this._packOpen(room, room.pack) ? room.pack || 'main' : 'main'; }
     roomOf(token) { const code = this.tokens.get(token); return code ? this.rooms.get(code) || null : null; }
     _room(code) { const r = this.rooms.get(normalizeCode(code)); if (!r) fail('not_found', 'Комната с таким кодом не найдена.'); return r; }
@@ -134,8 +137,8 @@
       const ident = this.identities.get(token);
       if (ident) return this._accountSeatName(room, token, ident);
       const busy = new Set(room.players.filter((p) => !p.left && p.token !== token).map((p) => p.name.toLowerCase()));
-      for (let salt = 0; salt < 50; salt++) { const n = guestName(token, salt); if (!busy.has(n.toLowerCase())) return n; }
-      return guestName(token + this._id(6));
+      for (let salt = 0; salt < 50; salt++) { const n = guestName(token, salt, roomLang(room)); if (!busy.has(n.toLowerCase())) return n; }
+      return guestName(token + this._id(6), 0, roomLang(room));
     }
     /** Имя аккаунта за столом. Если его уже кто-то занял, добавляем номер: так имя нельзя «забить» заранее и не пустить хозяина. */
     _accountSeatName(room, token, ident) {
@@ -213,10 +216,10 @@
       this._leave(token);
     }
 
-    ev_room_create(token, { name, leave }) {
+    ev_room_create(token, { name, leave, lang }) {
       this._guardOther(token, null, leave);
       const room = {
-        code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
+        code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main', lang: cleanLang(lang),
         settings: { discuss: 90, turn: 60, speed: 1, mode: 'host', hints: 'normal', table: 'full', discord: '' }, players: [], game: null, test: false, testRole: 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
       };
       this.rooms.set(room.code, room);
@@ -347,7 +350,18 @@
     ev_room_setting(token, { key, value }) {
       const room = this.roomOf(token); if (!room) fail('not_member', 'Вы не в комнате.');
       this._host(room, token);
-      if (key === 'discord') {
+      if (key === 'lang') {
+        if (room.status !== 'lobby') fail('in_progress', 'Язык дел меняют до начала партии.');
+        room.lang = cleanLang(value);
+        // В новом языке у пака может не быть дел: тогда берём первый пак, где они есть.
+        if (!this._packCases(room.pack || 'main', room).length) {
+          const p = Cases.PACKS.find((x) => this._packOpen(room, x.id) && this._packCases(x.id, room).length);
+          room.pack = p ? p.id : 'main';
+        }
+        if (room.caseChoice !== 'random' && !Cases.byId(room.caseChoice, this.roomCases(room))) room.caseChoice = 'random';
+        // Гости, которые ещё не начали играть, получают имя на языке комнаты.
+        if (this.guestNames) room.players.forEach((pl) => { if (!pl.isBot && !pl.left && isGuestName(pl.name) && !this.identities.get(pl.token)) pl.name = this._seatName(room, pl.token, pl.name); });
+      } else if (key === 'discord') {
         const url = cleanDiscord(value);
         if (url === null) fail('bad_setting', 'Нужна ссылка вида discord.gg/код.');
         room.settings.discord = url;
@@ -445,7 +459,7 @@
       try { career = this._stats().career; } catch (e) { career = null; }
       if (career) {
         const byTitle = Object.create(null);
-        this.enabledCases().forEach((c) => { byTitle[c.title] = c.id; });
+        this.enabledCases().forEach((c) => { byTitle[c.title] = c.id; if (Cases.hasLang(c, 'en')) byTitle[Cases.caseText(c, 'en').title] = c.id; });
         room.players.forEach((p) => {
           const c = !p.isBot && !p.left && p.account && career[p.account];
           if (!c || !Array.isArray(c.history)) return;
@@ -459,7 +473,10 @@
       const members = room.players.filter((p) => !p.left);
       if (members.length < minOf(room) && !opts.force) fail('cannot_start', 'Не хватает игроков.');
       if (isSmall(room) ? members.length < SMALL_MIN || members.length > SMALL_MAX : members.length < TEST_MIN) fail('cannot_start', isSmall(room) ? `В малом составе играют от ${SMALL_MIN} до ${SMALL_MAX} человек.` : `Нужно минимум ${TEST_MIN} человека.`);
-      const { c, random } = opts.caseData ? { c: opts.caseData, random: false } : this._pickCase(room);
+      const picked = opts.caseData ? { c: opts.caseData, random: false } : this._pickCase(room);
+      const random = picked.random;
+      // Дело на языке комнаты: английская комната получает переведённые тексты и приметы.
+      const c = Cases.localize(picked.c, roomLang(room));
       // Выбор конкретного дела действует на одну партию: «Следующее дело» снова берёт случайное.
       room.caseChoice = 'random';
       const host = members.find((p) => p.id === room.hostId);
@@ -675,9 +692,10 @@
         players: vis.slice().sort((a, b) => a.seat - b.seat).map((p) => ({ id: p.id, name: p.name, seat: p.seat, photo: this.photoOf(p), ready: p.ready, connected: p.connected && !p.away, away: !!p.away, provider: p.provider || null, isBot: p.isBot, left: p.left, auto: !!(room.game && room.game.players[p.id] && room.game.players[p.id].auto && !p.isBot) })),
         rules: { min: minOf(room), max: isSmall(room) ? SMALL_MAX : MAX_PLAYERS, small: isSmall(room), accomplice: true, gang: true, turnOptions: TURN_OPTIONS, talkOptions: TALK_OPTIONS },
         canStart: this.canStart(room),
-        packs: Cases.PACKS.filter((p) => this._packOpen(room, p.id)).map((p) => ({ id: p.id, title: p.title, desc: p.desc, icon: p.icon, count: this._packCases(p.id, room).length })),
+        lang: roomLang(room),
+        packs: Cases.PACKS.filter((p) => this._packOpen(room, p.id) && this._packCases(p.id, room).length).map((p) => ({ id: p.id, ...Cases.packText(p, roomLang(room)), icon: p.icon, count: this._packCases(p.id, room).length })),
         // Список дел нужен ведущему для выбора: в лобби и на вводной. В партии он только раздувал каждое обновление.
-        cases: watching ? [] : room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.roomCases(room).map(({ id, title, icon, victim, pack }) => ({ id, title, icon, victim, pack: pack || 'main' })) : [],
+        cases: watching ? [] : room.status === 'lobby' || (room.hostId === me.id && room.game && room.game.phase === 'brief') ? this.roomCases(room).map((c) => ({ id: c.id, ...Cases.caseText(c, roomLang(room)), icon: c.icon, pack: c.pack || 'main' })) : [],
         playedCases: (room.playedCases || []).slice(),
         log: room.log.slice(-8),
         game: room.game ? Engine.view(room.game, meId, { god: admin && room.test }) : null,
@@ -732,23 +750,23 @@
     }
     ev_admin_rooms(token) { this._admin(token); return { rooms: this.adminRooms() }; }
 
-    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode, hints, table }) {
+    ev_admin_test(token, { name, bots, caseId, speed, role, autostart, mode, hints, table, lang }) {
       this._admin(token);
       this._leave(token);
       const room = {
         code: this._newCode(), createdAt: this.now(), lastActive: this.now(), hostId: null, status: 'lobby', caseChoice: 'random', pack: 'main',
         settings: { discuss: 90, turn: 60, speed: Math.min(1, Math.max(0.03, Number(speed) || 1)), mode: mode === 'timers' ? 'timers' : 'host', hints: hints === 'light' ? 'light' : 'normal', table: table === 'small' ? 'small' : 'full', discord: '' }, players: [], game: null, test: true,
-        testRole: (table === 'small' ? ['mole', 'detective', 'random'] : ['killer', 'innocent', 'accomplice', 'random']).includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false,
+        testRole: (table === 'small' ? ['mole', 'detective', 'random'] : ['killer', 'innocent', 'accomplice', 'random']).includes(role) ? role : 'random', killerCounts: {}, log: [], lastCaseId: null, statsDone: false, lang: cleanLang(lang),
       };
       this.rooms.set(room.code, room);
       const host = this._addPlayer(room, token, name || 'Админ');
       room.hostId = host.id;
-      if (caseId && caseId !== 'random' && Cases.byId(caseId, this.enabledCases())) room.caseChoice = caseId;
+      if (caseId && caseId !== 'random' && Cases.byId(caseId, this.roomCases(room))) room.caseChoice = caseId;
       // Малый состав: всего 2–5 человек, значит ботов от одного до четырёх.
       const n = isSmall(room) ? Math.max(SMALL_MIN - 1, Math.min(SMALL_MAX - 1, Number(bots) || 2)) : Math.max(3, Math.min(9, Number(bots) || 5));
       const used = new Set();
       for (let i = 0; i < n; i++) {
-        const nm = Content.BOT_NAMES.find((x) => !used.has(x)) || `Агент ${i + 1}`;
+        const nm = Content.forLang(roomLang(room)).BOT_NAMES.find((x) => !used.has(x)) || `${roomLang(room) === 'en' ? 'Agent' : 'Агент'} ${i + 1}`;
         used.add(nm); this._addPlayer(room, 'bot-' + this._id(12), nm, true);
       }
       this._log(room, 'Тестовая комната создана.');
@@ -766,7 +784,7 @@
         case 'bot': {
           if (room.status !== 'lobby') fail('in_progress', 'Бота можно добавить только в лобби.');
           const used = new Set(room.players.map((p) => p.name));
-          const nm = Content.BOT_NAMES.find((x) => !used.has(x)) || `Агент ${room.players.length + 1}`;
+          const nm = Content.forLang(roomLang(room)).BOT_NAMES.find((x) => !used.has(x)) || `${roomLang(room) === 'en' ? 'Agent' : 'Агент'} ${room.players.length + 1}`;
           this._addPlayer(room, 'bot-' + this._id(12), nm, true); break;
         }
         case 'unbot':

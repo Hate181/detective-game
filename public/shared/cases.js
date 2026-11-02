@@ -1,8 +1,8 @@
 /* Архив дел. Каждое дело задаёт сцену, жертву, места для алиби и профессии с тегами для улик. */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'), require('./case-content.js'));
-  else root.DetectiveCases = factory(root.DetectiveContent, root.DetectiveCaseContent);
-})(typeof self !== 'undefined' ? self : this, function (Content, Extra) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./content.js'), require('./case-content.js'), require('./case-content.en.js'));
+  else root.DetectiveCases = factory(root.DetectiveContent, root.DetectiveCaseContent, root.DetectiveCaseContentEn);
+})(typeof self !== 'undefined' ? self : this, function (Content, Extra, ExtraEn) {
   const P = (name, ...tags) => ({ name, tags });
 
   const CASES = [
@@ -717,10 +717,10 @@
      hiddenFrom: с этого момента (ISO, UTC) пак не видно в лобби и его дела не выпадают в обычных комнатах.
      Дела остаются в архиве, админ видит их в редакторе и в тестовой комнате. Чтобы вернуть пак, сдвиньте дату. */
   const PACKS = [
-    { id: 'main', title: 'Основной', desc: 'Убийца и сообщник, разные места и эпохи.', icon: 'random' },
-    { id: 'halloween', title: 'Хеллоуин', desc: 'Убийца оставляет на жертве свою визитную карточку.', icon: 'pumpkin', hiddenFrom: '2026-11-07T21:00:00Z' }, // 8 ноября 00:00 по Москве
-    { id: 'onair', title: 'В эфире', desc: 'Наши дни: реалити-шоу, стримы, стартапы и вернисажи.', icon: 'phone' },
-    { id: 'anime', title: 'Аниме', desc: 'Расследуйте загадочные дела в любимых аниме-вселенных.', icon: 'sakura' },
+    { id: 'main', title: 'Основной', desc: 'Убийца и сообщник, разные места и эпохи.', icon: 'random', en: { title: 'Classic', desc: 'A killer and an accomplice, across different places and eras.' } },
+    { id: 'halloween', title: 'Хеллоуин', desc: 'Убийца оставляет на жертве свою визитную карточку.', icon: 'pumpkin', hiddenFrom: '2026-11-07T21:00:00Z', en: { title: 'Halloween', desc: 'The killer leaves a calling card on every victim.' } }, // 8 ноября 00:00 по Москве
+    { id: 'onair', title: 'В эфире', desc: 'Наши дни: реалити-шоу, стримы, стартапы и вернисажи.', icon: 'phone', en: { title: 'On Air', desc: 'Today: reality shows, streams, startups and gallery openings.' } },
+    { id: 'anime', title: 'Аниме', desc: 'Расследуйте загадочные дела в любимых аниме-вселенных.', icon: 'sakura', en: { title: 'Anime', desc: 'Solve strange cases in your favourite anime worlds.' } },
   ];
   CASES.forEach((c) => { c.pack = c.pack || 'main'; });
   /** Пак скрыт из общего доступа на момент now (мс). Неизвестный пак не скрыт. */
@@ -858,5 +858,43 @@
 
   const LEGACY_IDS = ['mansion', 'train', 'corporate', 'yacht'];
 
-  return { CASES, PACKS, packHidden, RETIRED_IDS, PACK_REV, ICONS, LEGACY_IDS, TEXT_REV, byId, mergeBuiltins, validateCase, parseProfessions, professionsToText };
+  /* ---------- Языки ----------
+     Архив дел хранится по-русски. Английский текст встроенного дела лежит отдельно (case-content.en.js, ключ — id дела)
+     и накладывается на дело, когда комната играет по-английски. Дела без перевода английской комнате не выпадают. */
+  const EN = ExtraEn || {};
+  /** Есть ли у дела текст на этом языке. */
+  function hasLang(c, lang) {
+    if (!lang || lang === 'ru') return true;
+    const id = typeof c === 'string' ? c : c && c.id;
+    return lang === 'en' && !!id && Object.prototype.hasOwnProperty.call(EN, id);
+  }
+  /** Название, жертва и короткое имя дела для списков. */
+  function caseText(c, lang) {
+    const t = lang === 'en' && c && EN[c.id];
+    return t ? { title: t.title, victim: t.victim, short: t.short } : { title: c.title, victim: c.victim, short: c.short };
+  }
+  /** Название и описание пака на языке комнаты. */
+  function packText(p, lang) { return lang === 'en' && p.en ? p.en : { title: p.title, desc: p.desc }; }
+  /** Дело на языке комнаты: копия с переведёнными текстами и приметами. Для русского возвращает само дело. */
+  function localize(c, lang) {
+    if (!c || !lang || lang === 'ru' || !hasLang(c, lang)) return c;
+    const t = EN[c.id];
+    const base = byId(c.id) || c;
+    const out = JSON.parse(JSON.stringify(c));
+    ['title', 'short', 'victim', 'teaser', 'scene'].forEach((k) => { if (t[k]) out[k] = t[k]; });
+    if (Array.isArray(t.locations) && t.locations.length) out.locations = t.locations.slice();
+    // Профессии: английские имена по порядку, метки берём из дела (их мог поправить админ), а если список разошёлся, из встроенного.
+    if (Array.isArray(t.professions) && t.professions.length) {
+      const src = out.professions && out.professions.length === t.professions.length ? out.professions : base.professions;
+      out.professions = t.professions.map((name, i) => ({ name, tags: ((src[i] && src[i].tags) || []).slice() }));
+    }
+    if (Array.isArray(t.habits)) out.habits = t.habits.map((h) => ({ key: `${c.id}.${h.key}`, label: h.label, habit: h.habit, clues: h.clues.slice() }));
+    if (t.proClues) out.proClues = JSON.parse(JSON.stringify(t.proClues));
+    ['relations', 'motives', 'secrets', 'npcNames'].forEach((k) => { if (Array.isArray(t[k]) && t[k].length) out[k] = t[k].slice(); else if (k === 'npcNames') delete out[k]; });
+    out.lang = lang;
+    Content.forLang(lang).registerCase(out);
+    return out;
+  }
+
+  return { CASES, PACKS, packHidden, hasLang, caseText, packText, localize, RETIRED_IDS, PACK_REV, ICONS, LEGACY_IDS, TEXT_REV, byId, mergeBuiltins, validateCase, parseProfessions, professionsToText };
 });

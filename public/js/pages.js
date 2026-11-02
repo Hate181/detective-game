@@ -2,7 +2,7 @@
    Почта приходит от сервера (CONTACT_EMAIL), по умолчанию support@detective-game.org. */
 (function () {
   const { esc } = UI;
-  const C = window.DetectiveContent || {};
+  const C = window.DetectiveContent ? window.DetectiveContent.forLang(I18N.lang) : {};
   const REVISION = '06 октября 2026';
 
   const TITLES = {
@@ -15,7 +15,7 @@
   const me = () => (window.Net && Net.me) || {};
   const todo = (label) => `<mark class="todo">${esc(label)}</mark>`;
   const email = () => (me().contact ? `<a href="mailto:${esc(me().contact)}">${esc(me().contact)}</a>` : todo('почта для связи'));
-  const site = () => esc(location.origin && location.origin !== 'null' ? location.origin : 'сайт игры');
+  const site = () => esc(location.origin && location.origin !== 'null' ? location.origin : L('сайт игры'));
   const docHead = (title, sub) => `<header class="doc-head"><p class="eyebrow">${sub}</p><h1>${title}</h1></header>`;
 
   /* ---------- Правила ---------- */
@@ -202,6 +202,7 @@ ${contactsSec(10)}`;
 <ul class="doc-list">
   <li><b>Cookie входа.</b> Появляется, если вы вошли через Discord или по почте, и живёт 30 дней или до нажатия «Выйти».</li>
   <li><b>Cookie на время входа.</b> Защищает вход через Discord и удаляется через 10 минут.</li>
+  <li><b>Cookie языка.</b> Появляется, если вы переключили язык сайта, и помнит выбор год.</li>
   <li><b>Запись в хранилище браузера.</b> Случайный номер, чтобы вернуть вас за стол после обрыва связи, ваше имя в игре и отметка, что вы видели это соглашение.</li>
 </ul></section>
 <section><h2>Чего нет</h2>
@@ -212,7 +213,10 @@ ${contactsSec(10)}`;
 <p>Пишите на ${email()}.</p></section>`;
   }
 
-  const RENDER = { rules, contacts, privacy, cookies };
+  // Английский сайт берёт свои тексты из pages-en.js.
+  const EN = I18N.lang === 'en' && window.PagesEn ? window.PagesEn({ esc, email, docHead, cardItems, me, npc: C.CARDS_NPC || {} }) : null;
+  if (EN) Object.assign(TITLES, EN.TITLES);
+  const RENDER = EN ? EN.RENDER : { rules, contacts, privacy, cookies };
 
   const Screen = {
     mount(root, { route }) {
@@ -240,7 +244,7 @@ ${contactsSec(10)}`;
       this.sig = JSON.stringify([me().contact, me().community]);
       document.title = `${TITLES[this.page]} · Detective Game`;
       this.root.innerHTML = `<article class="doc wrap" data-page="${this.page}">${RENDER[this.page](this.tab)}
-<p class="doc-back"><a class="btn" href="#/">На главную</a></p></article>`;
+<p class="doc-back"><a class="btn" href="#/">${L('На главную')}</a></p></article>`;
     },
     unmount() {
       if (this.root && this.onClick) this.root.removeEventListener('click', this.onClick);

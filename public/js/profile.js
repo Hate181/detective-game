@@ -2,12 +2,12 @@
    Гость видит своё имя «Гость-12345» и кнопки входа. */
 (function () {
   const { esc, toast } = UI;
-  const ROLE = { innocent: 'Невиновный', killer: 'Убийца', accomplice: 'Сообщник', detective: 'Следователь', mole: 'Крот' };
-  const PROV = { discord: 'Discord', google: 'Google', email: 'почту', dev: 'тестовый вход' };
+  const ROLE = { innocent: L('Невиновный'), killer: L('Убийца'), accomplice: L('Сообщник'), detective: L('Следователь'), mole: L('Крот') };
+  const PROV = { discord: 'Discord', google: 'Google', email: L('почту'), dev: L('тестовый вход') };
 
-  const day = (t) => { try { return new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); } catch (e) { return ''; } };
+  const day = (t) => { try { return new Date(t).toLocaleDateString(I18N.lang === 'en' ? 'en-GB' : 'ru-RU', { day: 'numeric', month: 'short' }); } catch (e) { return ''; } };
   const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
-  const games = (n) => { const m10 = n % 10, m100 = n % 100; return `${n} ${m10 === 1 && m100 !== 11 ? 'партия' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'партии' : 'партий'}`; };
+  const games = (n) => `${n} ${I18N.plural(n, L('партия'), L('партии'), L('партий'))}`;
 
   function avatarOf(name, url, cls) {
     return url ? `<img class="${cls}" src="${esc(url)}" alt="" referrerpolicy="no-referrer">`
@@ -16,16 +16,16 @@
 
   function guestHtml() {
     const g = App.guestName();
-    return `<header class="doc-head"><p class="eyebrow">Личный кабинет</p><h1>Вы пока гость</h1></header>
+    return `<header class="doc-head"><p class="eyebrow">${L('Личный кабинет')}</p><h1>${L('Вы пока гость')}</h1></header>
       <section class="pf-card paper">
-        <span class="pf-av-wrap"><span class="pf-av" style="background:${esc(App.hue(g))}">Г</span></span>
-        <div class="pf-who"><div class="label">Имя за столом</div><div class="pf-name">${esc(g)}</div><div class="pf-sub">номер закреплён за этим браузером</div></div>
+        <span class="pf-av-wrap"><span class="pf-av" style="background:${esc(App.hue(g))}">${L('Г')}</span></span>
+        <div class="pf-who"><div class="label">${L('Имя за столом')}</div><div class="pf-name">${esc(g)}</div><div class="pf-sub">${L('номер закреплён за этим браузером')}</div></div>
       </section>
-      <section><h2>Зачем входить</h2>
+      <section><h2>${L('Зачем входить')}</h2>
         <ul class="doc-list">
-          <li>За столом вас видят под вашим именем, а не под номером.</li>
-          <li>Выпали из партии, и место ждёт вас на любом устройстве.</li>
-          <li>Здесь копятся ваши партии, победы, медали и место в сезоне.</li>
+          <li>${L('За столом вас видят под вашим именем, а не под номером.')}</li>
+          <li>${L('Выпали из партии, и место ждёт вас на любом устройстве.')}</li>
+          <li>${L('Здесь копятся ваши партии, победы, медали и место в сезоне.')}</li>
         </ul>
         ${App.loginButtons()}
       </section>`;
@@ -37,57 +37,57 @@
     const hist = c.history.length
       ? `<ol class="pf-hist">${c.history.map((h) => `<li class="${h.won ? 'won' : 'lost'}">
           <span class="ph-date">${esc(day(h.t))}</span>
-          <span class="ph-case">${esc(h.case)}<small>${esc(ROLE[h.role] || '')} · ${h.players} игроков${h.medals && h.medals.length ? ` · ${esc(h.medals.join(', '))}` : ''}</small></span>
-          <span class="ph-res">${h.won ? 'Победа' : 'Поражение'}</span>
+          <span class="ph-case">${esc(h.case)}<small>${L('{0} · {1} игроков{2}', esc(ROLE[h.role] || ''), h.players, h.medals && h.medals.length ? ` · ${esc(h.medals.join(', '))}` : '')}</small></span>
+          <span class="ph-res">${h.won ? L('Победа') : L('Поражение')}</span>
           <span class="ph-pts">${h.points > 0 ? '+' : ''}${h.points}</span></li>`).join('')}</ol>`
-      : '<p class="muted">Сыгранных партий пока нет. Первая появится здесь, как только дело закроют.</p>';
-    return `<header class="doc-head"><p class="eyebrow">Личный кабинет</p><h1>Личное дело</h1></header>
+      : `<p class="muted">${L('Сыгранных партий пока нет. Первая появится здесь, как только дело закроют.')}</p>`;
+    return `<header class="doc-head"><p class="eyebrow">${L('Личный кабинет')}</p><h1>${L('Личное дело')}</h1></header>
       <section class="pf-card paper">
-        <span class="stamp">Детектив</span>
+        <span class="stamp">${L('Детектив')}</span>
         <span class="pf-av-wrap">${avatarOf(a.name, a.avatar, 'pf-av')}</span>
-        <div class="pf-who"><div class="label">Имя за столом</div><div class="pf-name">${esc(a.name)}</div>
-          <div class="pf-sub">вход через ${esc(PROV[a.provider] || a.provider)}${a.providerName && a.providerName !== a.name ? `, там вы ${esc(a.providerName)}` : ''}</div></div>
+        <div class="pf-who"><div class="label">${L('Имя за столом')}</div><div class="pf-name">${esc(a.name)}</div>
+          <div class="pf-sub">${L('вход через {0}{1}', esc(PROV[a.provider] || a.provider), a.providerName && a.providerName !== a.name ? L(', там вы {0}', esc(a.providerName)) : '')}</div></div>
       </section>
 
       <section class="pf-stats">
-        <div><b>${c.games}</b><span>партий</span></div>
-        <div><b>${pct(c.wins, c.games)}</b><span>побед</span></div>
-        <div><b>${c.points}</b><span>очков</span></div>
-        <div><b>${c.medals}</b><span>медалей</span></div>
+        <div><b>${c.games}</b><span>${L('партий')}</span></div>
+        <div><b>${pct(c.wins, c.games)}</b><span>${L('побед')}</span></div>
+        <div><b>${c.points}</b><span>${L('очков')}</span></div>
+        <div><b>${c.medals}</b><span>${L('медалей')}</span></div>
       </section>
-      <p class="pf-roles">Невиновным ${games(c.innocent || 0)}, убийцей ${games(c.killer || 0)}, сообщником ${games(c.accomplice || 0)}${c.detective || c.mole ? `, следователем ${games(c.detective || 0)}, кротом ${games(c.mole || 0)}` : ''}.${s && s.rank ? ` В сезоне <span class="nowrap">${esc(s.key)}</span> вы на ${s.rank} месте из ${s.total}.` : ''}</p>
+      <p class="pf-roles">${L('Невиновным {0}, убийцей {1}, сообщником {2}{3}.{4}', games(c.innocent || 0), games(c.killer || 0), games(c.accomplice || 0), c.detective || c.mole ? L(', следователем {0}, кротом {1}', games(c.detective || 0), games(c.mole || 0)) : '', s && s.rank ? ` ${L('В сезоне')} <span class="nowrap">${esc(s.key)}</span> ${L('вы на {0} месте из {1}.', s.rank, s.total)}` : '')}</p>
 
-      <section><h2>Последние партии</h2>${hist}</section>
+      <section><h2>${L('Последние партии')}</h2>${hist}</section>
 
-      <section><h2>Фото</h2>
-        <p>Его видят все за столом: в лобби, в игре и на итогах партии.${a.provider === 'discord' && !a.ownPhoto ? ' Пока своего фото нет, показываем аватарку из Discord.' : ''}</p>
+      <section><h2>${L('Фото')}</h2>
+        <p>${L('Его видят все за столом: в лобби, в игре и на итогах партии.{0}', a.provider === 'discord' && !a.ownPhoto ? L(' Пока своего фото нет, показываем аватарку из Discord.') : '')}</p>
         <div class="pf-photo">
-          <label class="btn btn-primary" for="pfPhoto">${a.ownPhoto ? 'Заменить фото' : 'Загрузить фото'}</label>
+          <label class="btn btn-primary" for="pfPhoto">${a.ownPhoto ? L('Заменить фото') : L('Загрузить фото')}</label>
           <input type="file" id="pfPhoto" accept="image/*" hidden>
-          ${a.ownPhoto ? `<button type="button" class="btn btn-ghost" data-photo-off>Убрать${a.providerAvatar ? ' и вернуть аватарку Discord' : ''}</button>` : ''}
+          ${a.ownPhoto ? `<button type="button" class="btn btn-ghost" data-photo-off>${L('Убрать{0}', a.providerAvatar ? L(' и вернуть аватарку Discord') : '')}</button>` : ''}
         </div>
-        <p class="hint">Подойдёт любая картинка: сайт сам вырежет квадрат по центру и уменьшит его.</p>
+        <p class="hint">${L('Подойдёт любая картинка: сайт сам вырежет квадрат по центру и уменьшит его.')}</p>
       </section>
 
-      <section><h2>Имя в игре</h2>
-        <p>Его видят за столом и в таблице сезона, на всех устройствах.</p>
+      <section><h2>${L('Имя в игре')}</h2>
+        <p>${L('Его видят за столом и в таблице сезона, на всех устройствах.')}</p>
         <form class="pf-name-form" id="pfForm" autocomplete="off">
-          <input class="input" id="pfName" maxlength="18" value="${esc(a.name)}" aria-label="Имя в игре">
-          <button class="btn btn-primary" type="submit">Сохранить</button>
+          <input class="input" id="pfName" maxlength="18" value="${esc(a.name)}" aria-label="${L('Имя в игре')}">
+          <button class="btn btn-primary" type="submit">${L('Сохранить')}</button>
         </form>
-        ${a.custom && a.providerName ? `<p class="hint"><button type="button" class="linkish" data-reset>Вернуть имя из ${esc(PROV[a.provider] || a.provider)}</button></p>` : ''}
+        ${a.custom && a.providerName ? `<p class="hint"><button type="button" class="linkish" data-reset>${L('Вернуть имя из {0}', esc(PROV[a.provider] || a.provider))}</button></p>` : ''}
       </section>
 
-      ${a.provider === 'email' ? `<section><h2>Пароль</h2>
+      ${a.provider === 'email' ? `<section><h2>${L('Пароль')}</h2>
         <form class="pf-pass" id="pfPass" autocomplete="off">
-          <input class="input" id="pfOld" type="password" autocomplete="current-password" maxlength="128" placeholder="Старый пароль" aria-label="Старый пароль">
-          <input class="input" id="pfNew" type="password" autocomplete="new-password" maxlength="128" placeholder="Новый, от 8 знаков" aria-label="Новый пароль">
-          <button class="btn" type="submit">Сменить</button>
+          <input class="input" id="pfOld" type="password" autocomplete="current-password" maxlength="128" placeholder="${L('Старый пароль')}" aria-label="${L('Старый пароль')}">
+          <input class="input" id="pfNew" type="password" autocomplete="new-password" maxlength="128" placeholder="${L('Новый, от 8 знаков')}" aria-label="${L('Новый пароль')}">
+          <button class="btn" type="submit">${L('Сменить')}</button>
         </form></section>` : ''}
 
-      <section><h2>Выход</h2>
-        <p>После выхода вы снова будете играть гостем.</p>
-        <button class="btn btn-ghost" type="button" data-logout>Выйти из аккаунта</button>
+      <section><h2>${L('Выход')}</h2>
+        <p>${L('После выхода вы снова будете играть гостем.')}</p>
+        <button class="btn btn-ghost" type="button" data-logout>${L('Выйти из аккаунта')}</button>
       </section>`;
   }
 
@@ -96,7 +96,7 @@
       // Обработчики вешаем на свой контейнер: корень приложения общий для всех экранов.
       root.innerHTML = '<div class="pf-root"></div>';
       root = this.root = root.firstChild; this.data = null; this.sig = null;
-      document.title = 'Личный кабинет · Detective Game';
+      document.title = L('Личный кабинет · Detective Game');
       root.addEventListener('click', (e) => this.onClick(e));
       root.addEventListener('change', (e) => { if (e.target.id === 'pfPhoto' && e.target.files && e.target.files[0]) this.upload(e.target.files[0], e.target); });
       root.addEventListener('submit', (e) => {
@@ -122,16 +122,16 @@
       if (a && this.data && this.data.guest) { this.data = null; this.load(); return; }
       this.sig = sig;
       this.root.innerHTML = `<article class="doc wrap profile">${a ? accountHtml(a, this.data) : guestHtml()}
-        <p class="doc-back"><a class="btn" href="#/">На главную</a></p></article>`;
+        <p class="doc-back"><a class="btn" href="#/">${L('На главную')}</a></p></article>`;
     },
     async save(body) {
       const r = await App.saveProfile(body);
       if (!r.ok) {
-        toast(r.error || 'Не получилось сохранить.', 'err');
+        toast(r.error || L('Не получилось сохранить.'), 'err');
         const inp = this.root.querySelector('#pfName'); if (inp) { inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 400); }
         return;
       }
-      toast('Имя сохранено.');
+      toast(L('Имя сохранено.'));
       this.sig = null; this.render();
     },
     /** Квадрат по центру, 192×192, JPEG. Большие фото с телефона ужимаем, пока файл не станет меньше 55 КБ. */
@@ -160,14 +160,14 @@
     },
     async upload(file, input) {
       input.value = '';
-      if (!/^image\//.test(file.type)) { toast('Это не картинка.', 'err'); return; }
-      if (file.size > 15 * 1024 * 1024) { toast('Файл слишком большой, нужен до 15 МБ.', 'err'); return; }
+      if (!/^image\//.test(file.type)) { toast(L('Это не картинка.'), 'err'); return; }
+      if (file.size > 15 * 1024 * 1024) { toast(L('Файл слишком большой, нужен до 15 МБ.'), 'err'); return; }
       const image = await this.shrink(file);
-      if (!image) { toast('Не получилось открыть картинку. Попробуйте JPEG или PNG.', 'err'); return; }
-      this.photoDone(await App.postJson('/api/photo', { image }), 'Фото сохранено.', true);
+      if (!image) { toast(L('Не получилось открыть картинку. Попробуйте JPEG или PNG.'), 'err'); return; }
+      this.photoDone(await App.postJson('/api/photo', { image }), L('Фото сохранено.'), true);
     },
     photoDone(r, msg, own) {
-      if (!r || !r.ok) { toast((r && r.error) || 'Не получилось.', 'err'); return; }
+      if (!r || !r.ok) { toast((r && r.error) || L('Не получилось.'), 'err'); return; }
       const a = Net.me.account;
       a.avatar = r.avatar; a.ownPhoto = own;
       App.renderAccount();
@@ -178,19 +178,19 @@
       const old = this.root.querySelector('#pfOld'), nw = this.root.querySelector('#pfNew');
       const r = await App.postJson('/auth/email/password', { old: old.value, password: nw.value });
       if (!r.ok) {
-        toast(r.error || 'Не получилось.', 'err');
+        toast(r.error || L('Не получилось.'), 'err');
         const el = r.field === 'old' ? old : nw; el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); el.focus();
         return;
       }
       old.value = ''; nw.value = '';
-      toast('Пароль сменён. На других устройствах нужно будет войти заново.');
+      toast(L('Пароль сменён. На других устройствах нужно будет войти заново.'));
     },
     async onClick(e) {
       if (e.target.closest('[data-reset]')) { this.save({ reset: true }); return; }
-      if (e.target.closest('[data-photo-off]')) { this.photoDone(await App.postJson('/api/photo', { remove: true }), 'Фото убрано.', false); return; }
+      if (e.target.closest('[data-photo-off]')) { this.photoDone(await App.postJson('/api/photo', { remove: true }), L('Фото убрано.'), false); return; }
       if (e.target.closest('[data-logout]')) {
         const inRoom = !!App.state;
-        const ok = await UI.confirmBox({ title: 'Выйти из аккаунта?', sub: inRoom ? 'Вы сидите в комнате. Выйдя из аккаунта, вы потеряете это место.' : 'Дальше вы будете играть гостем.', ok: 'Выйти' });
+        const ok = await UI.confirmBox({ title: L('Выйти из аккаунта?'), sub: inRoom ? L('Вы сидите в комнате. Выйдя из аккаунта, вы потеряете это место.') : L('Дальше вы будете играть гостем.'), ok: L('Выйти') });
         if (ok) Net.logout();
       }
     },

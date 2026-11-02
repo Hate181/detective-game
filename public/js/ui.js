@@ -1,6 +1,7 @@
 /* Общие помощники интерфейса: экранирование, иконки, аватары, тосты, модальные окна. */
 (function () {
-  const Content = window.DetectiveContent;
+  // Подписи пунктов карточки, карт и подсказок на языке сайта.
+  const Content = window.DetectiveContent.forLang(I18N.lang);
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -142,12 +143,12 @@
     if (!root) return;
     const el = document.createElement('div');
     el.className = 'toast' + (kind === 'err' ? ' err' : '');
-    el.textContent = text;
+    el.textContent = I18N.tr(String(text == null ? '' : text));
     root.appendChild(el);
     while (root.children.length > 4) root.removeChild(root.firstChild);
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, kind === 'err' ? 4200 : 2800);
   }
-  const fail = (res) => { toast((res && res.error) || 'Не получилось. Попробуйте ещё раз.', 'err'); return false; };
+  const fail = (res) => { toast((res && res.error) || L('Не получилось. Попробуйте ещё раз.'), 'err'); return false; };
 
   /* Модальное окно. Возвращает { close, el }. build(el, close) заполняет содержимое. */
   function modal(build) {
@@ -169,7 +170,7 @@
   }
 
   /* Выбор из списка. items: [{ id, title, sub, avatarIdx, name, disabled }] → Promise<id|null> */
-  function choose({ title, sub, items, cancel = 'Отмена', note }) {
+  function choose({ title, sub, items, cancel = L('Отмена'), note }) {
     return new Promise((resolve) => {
       let done = false;
       const m = modal((box, close) => {
@@ -195,20 +196,20 @@
     const played = {};
     (st.playedCases || []).forEach((id) => { played[id] = (played[id] || 0) + 1; });
     const inPack = (st.cases || []).filter((c) => (c.pack || 'main') === (st.pack || 'main'));
-    const items = [{ id: 'random', title: 'Случайное дело', sub: 'Выпадет то, что вы играли реже всего', icon: 'random' }]
+    const items = [{ id: 'random', title: L('Случайное дело'), sub: L('Выпадет то, что вы играли реже всего'), icon: 'random' }]
       .concat(inPack.map((c) => ({ id: c.id, title: c.title, icon: c.icon, disabled: c.id === current,
-        sub: c.id === current ? 'Открыто сейчас' : played[c.id] ? `Уже было в этой комнате${played[c.id] > 1 ? ` ${played[c.id]} раза` : ''}` : c.victim })));
+        sub: c.id === current ? L('Открыто сейчас') : played[c.id] ? L('Уже было в этой комнате{0}', played[c.id] > 1 ? ` ${L('{0} раза', played[c.id])}` : '') : c.victim })));
     return choose({ title, sub, items });
   }
 
   /* Окно с текстовым вводом → Promise<string|null> */
-  function ask({ title, sub, placeholder, ok = 'Готово', max = 160, multiline = false }) {
+  function ask({ title, sub, placeholder, ok = L('Готово'), max = 160, multiline = false }) {
     return new Promise((resolve) => {
       let done = false;
       const m = modal((box, close) => {
         box.innerHTML = `<h3>${esc(title)}</h3>${sub ? `<p class="sub">${esc(sub)}</p>` : ''}
           ${multiline ? `<textarea class="input" rows="3" maxlength="${max}" placeholder="${esc(placeholder || '')}"></textarea>` : `<input class="input" maxlength="${max}" placeholder="${esc(placeholder || '')}">`}
-          <div class="row"><button class="btn btn-ghost" data-cancel>Отмена</button><button class="btn btn-primary" data-ok>${esc(ok)}</button></div>`;
+          <div class="row"><button class="btn btn-ghost" data-cancel>${L('Отмена')}</button><button class="btn btn-primary" data-ok>${esc(ok)}</button></div>`;
         const inp = box.querySelector('.input');
         const submit = () => { const v = inp.value.trim(); if (!v) { inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 400); return; } done = true; close(); resolve(v); };
         box.addEventListener('click', (e) => { if (e.target.closest('[data-ok]')) submit(); else if (e.target.closest('[data-cancel]')) close(); });
@@ -220,7 +221,7 @@
   }
 
   /* Подтверждение → Promise<boolean> */
-  function confirmBox({ title, sub, ok = 'Да', danger = false, cancel = 'Отмена' }) {
+  function confirmBox({ title, sub, ok = L('Да'), danger = false, cancel = L('Отмена') }) {
     return new Promise((resolve) => {
       let done = false;
       const m = modal((box, close) => {
@@ -234,13 +235,13 @@
   }
 
   async function copyText(text, okMsg) {
-    try { await navigator.clipboard.writeText(text); toast(okMsg || 'Скопировано'); }
-    catch (e) { toast(`Скопируйте вручную: ${text}`); }
+    try { await navigator.clipboard.writeText(text); toast(okMsg || L('Скопировано')); }
+    catch (e) { toast(L('Скопируйте вручную: {0}', text)); }
   }
 
   /* Журнал: только события партии (улики, голоса, карты, итоги). Писать в него нельзя. Записи дописываются по id. */
   function makeLog(root) {
-    root.innerHTML = `<div class="j-head"><h2>Журнал</h2><span class="muted mono" data-st style="font-size:11px"></span></div>
+    root.innerHTML = `<div class="j-head"><h2>${L('Журнал')}</h2><span class="muted mono" data-st style="font-size:11px"></span></div>
       <div class="j-list" data-list></div>`;
     const list = root.querySelector('[data-list]');
     const st = root.querySelector('[data-st]');
@@ -268,6 +269,6 @@
     };
   }
 
-  const HOME_TITLE = 'Detective Game: онлайн-игра в детектив для компании';
+  const HOME_TITLE = L('Detective Game: онлайн-игра в детектив для компании');
   window.UI = { HOME_TITLE, esc, $, $$, icon, ICONS, hueOf, initial, avatar, fmtClock, setHtml, toast, fail, modal, choose, pickCase, ask, confirmBox, copyText, makeLog, Content };
 })();

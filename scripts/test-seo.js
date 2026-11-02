@@ -1,4 +1,5 @@
-/* SEO: главная и документы отдаются с тегами и готовым текстом, robots.txt и sitemap.xml на месте. */
+/* SEO: главная и документы на двух языках отдаются с тегами и готовым текстом, robots.txt и sitemap.xml на месте,
+   язык браузера и выбранный язык уводят на нужную версию, а поисковых роботов никуда не уводят. */
 const { spawn } = require('child_process');
 const path = require('path');
 const PORT = 3000 + Math.floor(Math.random() * 2000) + 4000;
@@ -14,7 +15,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok  ' : '  FAIL ') + msg); if 
   });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/healthz'); break; } catch (e) { await new Promise((r) => setTimeout(r, 100)); } }
-  const get = async (p) => { const r = await fetch(BASE + p, { redirect: 'manual', headers: { host: 'detective-game.org' } }); return { status: r.status, type: r.headers.get('content-type') || '', body: await r.text() }; };
+  const get = async (p, h = {}) => { const r = await fetch(BASE + p, { redirect: 'manual', headers: Object.assign({ host: 'detective-game.org' }, h) }); return { status: r.status, type: r.headers.get('content-type') || '', location: r.headers.get('location') || '', body: await r.text() }; };
   try {
     const home = await get('/');
     check(home.status === 200, 'главная 200');
@@ -39,6 +40,29 @@ const check = (ok, msg) => { console.log((ok ? '  ok  ' : '  FAIL ') + msg); if 
     check(robots.status === 200 && robots.body.includes('Sitemap: https://detective-game.org/sitemap.xml') && robots.body.includes('Disallow: /api/'), 'robots.txt');
     const map = await get('/sitemap.xml');
     check(map.status === 200 && /xml/.test(map.type) && map.body.includes('<loc>https://detective-game.org/rules</loc>') && !map.body.includes('#'), 'sitemap.xml');
+    // Английская версия.
+    const en = await get('/en/');
+    check(en.status === 200 && /<html lang="en"/.test(en.body), '/en/ отдаётся на английском');
+    check(en.body.includes('<link rel="canonical" href="https://detective-game.org/en/">'), '/en/: канонический адрес');
+    check(en.body.includes('hreflang="ru" href="https://detective-game.org/"') && en.body.includes('hreflang="en" href="https://detective-game.org/en/"') && en.body.includes('hreflang="x-default"'), 'hreflang на обеих версиях');
+    check(home.body.includes('hreflang="en" href="https://detective-game.org/en/"'), 'русская главная ссылается на английскую');
+    check(en.body.includes('og:image" content="https://detective-game.org/og-en.jpg"') && en.body.includes('og:locale" content="en_US"'), '/en/: английская картинка и locale');
+    check(!/[А-Яа-яЁё]/.test(en.body.replace(/<div class="langsw"[\s\S]*?<\/div>/, '').replace(/<script[\s\S]*?<\/script>/g, '')), '/en/: в разметке нет русского текста');
+    const enRules = await get('/en/rules');
+    check(enRules.status === 200 && enRules.body.includes('<link rel="canonical" href="https://detective-game.org/en/rules">') && /Accusations\./.test(enRules.body), '/en/rules: английские правила');
+    check(map.body.includes('<loc>https://detective-game.org/en/rules</loc>') && map.body.includes('xhtml:link'), 'английские страницы в sitemap');
+    check((await get('/og-en.jpg')).status === 200, '/og-en.jpg');
+    // Переадресация по языку.
+    let x = await get('/rules', { 'accept-language': 'de-DE,de;q=0.9,en;q=0.8' });
+    check(x.status === 302 && x.location === '/en/rules', 'немецкий браузер уходит на /en/rules');
+    x = await get('/en/', { 'accept-language': 'ru-RU,ru;q=0.9' });
+    check(x.status === 302 && x.location === '/', 'русский браузер уходит с /en/ на главную');
+    x = await get('/en/', { 'accept-language': 'ru-RU', cookie: 'lang=en' });
+    check(x.status === 200, 'выбранный вручную язык важнее браузера');
+    x = await get('/', { 'accept-language': 'en-US', 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' });
+    check(x.status === 200, 'робота не уводим');
+    x = await get('/r/ABCDE', { cookie: 'lang=en' });
+    check(x.status === 302 && x.location === '/en/#/room/ABCDE', 'ссылка-приглашение на английском');
     for (const f of ['/og.jpg', '/favicon.ico', '/favicon.svg', '/apple-touch-icon.png']) check((await get(f)).status === 200, f);
     check((await get('/nope')).status === 404, 'несуществующий адрес 404');
   } finally {

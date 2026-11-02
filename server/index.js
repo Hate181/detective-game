@@ -77,7 +77,8 @@ const PING_TIMEOUT_MS = Number(process.env.PING_TIMEOUT_MS || 70000);
 const io = new Server(server, { serveClient: false, perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { memLevel: 4, level: 6 } }, cors: { origin: false }, allowRequest: security.allowSocket, maxHttpBufferSize: 64 * 1024, pingInterval: 25000, pingTimeout: PING_TIMEOUT_MS });
 
 // Главная, правила и документы с тегами для поисковиков, robots.txt и sitemap.xml.
-require('./seo.js').createSeo({
+const seo = require('./seo.js');
+seo.createSeo({
   publicUrl: process.env.PUBLIC_URL,
   contact: process.env.CONTACT_EMAIL || 'support@detective-game.org',
   community: process.env.DISCORD_SERVER_URL || 'https://discord.gg/hfWsKkGVH',
@@ -92,7 +93,8 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 const SOCKET_CLIENT = path.join(path.dirname(require.resolve('socket.io')), '..', 'client-dist', 'socket.io.min.js');
 app.get('/vendor/socket.io.min.js', (req, res) => res.sendFile(SOCKET_CLIENT));
 app.get('/api/cases', (req, res) => res.json(cases.filter((c) => c.enabled !== false)));
-app.get('/r/:code', (req, res) => res.redirect(`/#/room/${normalizeCode(req.params.code)}`));
+// Приглашение в комнату открывается на языке того, кто по нему перешёл.
+app.get('/r/:code', (req, res) => res.redirect(`${seo.wantedLang(req) === 'en' ? '/en/' : '/'}#/room/${normalizeCode(req.params.code)}`));
 
 const hub = new Hub({
   store,

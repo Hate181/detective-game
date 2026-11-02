@@ -134,7 +134,7 @@
     },
     async createTest() {
       const o = this.testOpts;
-      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode, hints: o.hints, table: o.table });
+      const r = await Net.call('admin:test', { name: o.name, bots: o.bots, caseId: o.caseId, speed: o.speed, role: o.role, autostart: o.autostart, mode: o.mode, hints: o.hints, table: o.table, lang: I18N.lang });
       if (!r.ok) return fail(r);
       if (o.auto) await Net.call('admin:room', { code: r.code, action: 'auto' });
       location.hash = `#/room/${r.code}`;

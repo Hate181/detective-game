@@ -10,7 +10,7 @@
 
   async function fontsReady() {
     if (!document.fonts || !document.fonts.load) return;
-    const sample = 'Дело закрыто Detective 0123';
+    const sample = L('Дело закрыто Detective 0123');
     await Promise.all([
       `700 64px ${F.display}`, `italic 600 48px ${F.display}`, `600 30px ${F.ui}`, `400 24px ${F.ui}`, `500 22px ${F.mono}`,
     ].map((f) => document.fonts.load(f, sample).catch(() => null)));
@@ -41,7 +41,7 @@
     const out = new Set((R.kicks || []).map((k) => k.id));
     const free = [R.killerId, R.accompliceId].filter((id) => id && !out.has(id));
     const win = R.winner === 'innocent';
-    const title = R.small ? (win ? 'Дело раскрыто' : 'Преступники ушли') : win ? 'Невиновные победили' : free.length > 1 ? 'Преступники на свободе' : free[0] === R.accompliceId ? 'Сообщник на свободе' : 'Убийца на свободе';
+    const title = R.small ? (win ? L('Дело раскрыто') : L('Преступники ушли')) : win ? L('Невиновные победили') : free.length > 1 ? L('Преступники на свободе') : free[0] === R.accompliceId ? L('Сообщник на свободе') : L('Убийца на свободе');
     return { win, title };
   }
 
@@ -87,9 +87,9 @@
     ctx.translate(W - PAD - 150, 84); ctx.rotate(-5 * Math.PI / 180);
     ctx.font = `700 30px ${F.display}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
-    const sw = ctx.measureText('ДЕЛО ЗАКРЫТО').width + 36;
+    const sw = ctx.measureText(L('ДЕЛО ЗАКРЫТО')).width + 36;
     ctx.strokeStyle = C.red; ctx.lineWidth = 4; rr(ctx, -sw / 2, -30, sw, 58, 5); ctx.stroke();
-    ctx.fillStyle = C.red; ctx.textAlign = 'center'; ctx.fillText('ДЕЛО ЗАКРЫТО', 0, 11);
+    ctx.fillStyle = C.red; ctx.textAlign = 'center'; ctx.fillText(L('ДЕЛО ЗАКРЫТО'), 0, 11);
     ctx.restore();
     ctx.textAlign = 'left';
 
@@ -106,11 +106,11 @@
     ctx.fillText(fit(ctx, v.title, W - PAD * 2), PAD, y);
     y += 50;
     ctx.fillStyle = C.muted; ctx.font = `400 26px ${F.ui}`;
-    const crim = [`Убийца: ${nm(R.killerId)}`].concat(R.accompliceId ? [`сообщник: ${nm(R.accompliceId)}`] : []).join(', ');
+    const crim = [L('Убийца: {0}', nm(R.killerId))].concat(R.accompliceId ? [L('сообщник: {0}', nm(R.accompliceId))] : []).join(', ');
     ctx.fillText(fit(ctx, crim, W - PAD * 2), PAD, y);
     y += 38;
     const rounds = R.rounds || (g.verdict && g.verdict.round) || 0;
-    ctx.fillText(`${R.rank.length} ${plural(R.rank.length, 'игрок', 'игрока', 'игроков')} · ${rounds} ${plural(rounds, 'раунд', 'раунда', 'раундов')} · ${R.minutes} мин`, PAD, y);
+    ctx.fillText(L('{0} {1} · {2} {3} · {4} мин', R.rank.length, plural(R.rank.length, L('игрок'), L('игрока'), L('игроков')), rounds, plural(rounds, L('раунд'), L('раунда'), L('раундов')), R.minutes), PAD, y);
     y += 40;
 
     // Лист с игроками
@@ -143,7 +143,7 @@
       ctx.fillText(String(pts), x1, cy - 2);
       const ptsW = Math.max(60, ctx.measureText(String(pts)).width);
       ctx.fillStyle = C.inkMute; ctx.font = `400 16px ${F.ui}`;
-      ctx.fillText(plural(pts, 'очко', 'очка', 'очков'), x1, cy + 22);
+      ctx.fillText(plural(pts, L('очко'), L('очка'), L('очков')), x1, cy + 22);
       ctx.textAlign = 'left';
       // имя и роль
       const tx = ax + r + 20, maxW = x1 - ptsW - 24 - tx;
@@ -159,8 +159,8 @@
         ctx.font = `600 ${compact ? 18 : 20}px ${F.ui}`; ctx.fillStyle = C.gold;
         ctx.fillText(fit(ctx, '★ ' + medals[id].join(' · '), maxW - nw - 16), tx + nw + 16, cy - (compact ? 11 : 13));
       }
-      const roleText = role === 'killer' ? 'убийца' : role === 'accomplice' ? 'сообщник' : role === 'mole' ? 'крот' : role === 'detective' ? 'следователь' : 'невиновный';
-      const extra = kickedRound[id] ? `, исключён в раунде ${kickedRound[id]}` : '';
+      const roleText = role === 'killer' ? L('убийца') : role === 'accomplice' ? L('сообщник') : role === 'mole' ? L('крот') : role === 'detective' ? L('следователь') : L('невиновный');
+      const extra = kickedRound[id] ? L(', исключён в раунде {0}', kickedRound[id]) : '';
       ctx.font = `${role === 'innocent' ? 400 : 600} ${compact ? 18 : 20}px ${F.ui}`;
       ctx.fillStyle = role === 'killer' || role === 'mole' ? C.oxblood : role === 'accomplice' ? C.gold : C.inkMute;
       ctx.fillText(roleText, tx, cy + (compact ? 14 : 18));
@@ -173,45 +173,42 @@
     ctx.fillStyle = C.muted; ctx.font = `500 22px ${F.mono}`;
     ctx.fillText(location.host, PAD, fy);
     ctx.textAlign = 'right';
-    ctx.fillText(new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }), W - PAD, fy);
+    ctx.fillText(new Date().toLocaleDateString(I18N.lang === 'en' ? 'en-GB' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }), W - PAD, fy);
     ctx.textAlign = 'left';
     return cv;
   }
 
-  function plural(n, one, few, many) {
-    const m10 = n % 10, m100 = n % 100;
-    return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
-  }
+  const plural = (n, one, few, many) => I18N.plural(n, one, few, many);
   const toBlob = (cv) => new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error('png'))), 'image/png'));
 
   /** Окно с картинкой и кнопками «Скопировать» и «Сохранить». */
   async function open(R, g) {
     let cv;
-    try { cv = await render(R, g); } catch (e) { UI.toast('Не получилось нарисовать картинку.', 'err'); return; }
+    try { cv = await render(R, g); } catch (e) { UI.toast(L('Не получилось нарисовать картинку.'), 'err'); return; }
     const blob = await toBlob(cv);
     const file = `delo-${new Date().toISOString().slice(0, 10)}.png`;
     UI.modal((box, close) => {
       box.classList.add('share-modal');
-      box.innerHTML = `<h3>Картинка с итогами</h3>
-        <p class="muted">Скиньте её в чат: роли, очки и медали всех игроков.</p>
-        <img class="share-img" alt="Итоги дела «${UI.esc(g.case.title)}»" src="${cv.toDataURL('image/png')}">
+      box.innerHTML = `<h3>${L('Картинка с итогами')}</h3>
+        <p class="muted">${L('Скиньте её в чат: роли, очки и медали всех игроков.')}</p>
+        <img class="share-img" alt="${L('Итоги дела «{0}»', UI.esc(g.case.title))}" src="${cv.toDataURL('image/png')}">
         <div class="share-acts">
-          ${navigator.clipboard && window.ClipboardItem ? '<button class="btn btn-primary" data-s="copy">Скопировать</button>' : ''}
-          <button class="btn${navigator.clipboard && window.ClipboardItem ? '' : ' btn-primary'}" data-s="save">Сохранить</button>
-          <button class="btn btn-ghost" data-s="close">Закрыть</button>
+          ${navigator.clipboard && window.ClipboardItem ? `<button class="btn btn-primary" data-s="copy">${L('Скопировать')}</button>` : ''}
+          <button class="btn${navigator.clipboard && window.ClipboardItem ? '' : ' btn-primary'}" data-s="save">${L('Сохранить')}</button>
+          <button class="btn btn-ghost" data-s="close">${L('Закрыть')}</button>
         </div>`;
       box.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-s]'); if (!b) return;
         if (b.dataset.s === 'close') return close();
         if (b.dataset.s === 'copy') {
-          try { await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]); UI.toast('Картинка скопирована, вставьте её в чат.'); }
-          catch (err) { UI.toast('Браузер не дал скопировать. Нажмите «Сохранить».', 'err'); }
+          try { await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]); UI.toast(L('Картинка скопирована, вставьте её в чат.')); }
+          catch (err) { UI.toast(L('Браузер не дал скопировать. Нажмите «Сохранить».'), 'err'); }
           return;
         }
         // Сохранить: на телефоне через «Поделиться», если можно, иначе обычное скачивание
         const f = window.File ? new File([blob], file, { type: 'image/png' }) : null;
         if (f && matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [f] })) {
-          try { await navigator.share({ files: [f], title: 'Дело закрыто' }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
+          try { await navigator.share({ files: [f], title: L('Дело закрыто') }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
         }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = file;
